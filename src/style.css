@@ -33,7 +33,15 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action
   box-shadow: 0 2px 8px rgba(0, 0, 0, .08); white-space: nowrap;
 }
 .pill.next { background: #fff6c9; }
-.pill.next b { color: #e65100; font-size: 22px; }
+.pill.next { pointer-events: auto; font-size: 20px; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+.pill.next b { color: #e65100; font-size: 24px; }
+.pill.next .tag { font-size: 14px; color: #fff; background: #7e57c2; border-radius: 8px; padding: 2px 7px; margin-right: 6px; vertical-align: 2px; }
+.pill.next .tag.s-语文 { background: #e53935; } .pill.next .tag.s-数学 { background: #1e88e5; }
+.pill.next .tag.s-英语 { background: #43a047; } .pill.next .tag.s-常识 { background: #fb8c00; }
+.pill.next .done { color: #43a047; } .pill.next .todo { color: #b0b7c3; }
+.pill.next .cur { color: #e65100; font-size: 26px; border-bottom: 3px solid #e65100; }
+.pill.next span[class] + span[class] { margin-left: 2px; }
+.pill.next .replay { font-size: 16px; opacity: .7; }
 #hud-shield { letter-spacing: 1px; }
 .round {
   pointer-events: auto; width: 44px; height: 44px; border-radius: 50%; background: rgba(255, 255, 255, .92);

@@ -25,24 +25,55 @@ test('maps are deterministic and differ between levels', () => {
   assert.notDeepEqual(L.generateMap(7), L.generateMap(8));
 });
 
-test('robot numbers follow each world rule', () => {
+test('every level has a lesson the child can answer', () => {
+  const subjects = {};
   for (let lv = 1; lv <= S.LEVEL_COUNT; lv++) {
-    const c = L.levelConfig(lv);
-    assert.equal(new Set(c.numbers).size, c.numbers.length, `level ${lv} distinct numbers`);
-    assert.ok(c.numbers.length >= 2 && c.numbers.length <= 10);
-    const rule = S.worldOf(lv).rule;
-    const sorted = [...c.numbers].sort((a, b) => a - b);
-    if (rule.kind === 'count') sorted.forEach((n, i) => assert.equal(n, rule.start + i * rule.step));
-    if (rule.kind === 'random') assert.ok(sorted.every(n => n >= 1 && n <= rule.max));
-    assert.ok(c.robotSpeed > 0 && c.fireEvery > 0 && c.maxAlive >= 2);
+    const c = L.levelConfig(lv), les = c.lesson;
+    subjects[les.subject] = (subjects[les.subject] || 0) + 1;
+    assert.ok(c.items.length >= 3 && c.items.length <= 8, `level ${lv} item count ${c.items.length}`);
+    assert.ok(les.teach && les.recap && les.title, `level ${lv} texts`);
+    for (const it of c.items) {
+      assert.ok(it.hit && it.hit.length, `level ${lv} hit speech`);
+      if (!les.ordered) {
+        assert.ok(it.cue && it.say, `level ${lv} needs a question`);
+        assert.ok(it.label || it.color, `level ${lv} label`);
+      }
+    }
+    if (!les.ordered) {
+      const labels = c.items.map(i => i.label || i.color), cues = c.items.map(i => i.cue);
+      assert.equal(new Set(labels).size, labels.length, `level ${lv} answers must be distinct`);
+      assert.equal(new Set(cues).size, cues.length, `level ${lv} questions must be distinct`);
+    } else {
+      const idx = c.items.map(i => i.idx).sort((a, b) => a - b);
+      assert.deepEqual(idx, idx.map((_, i) => i), `level ${lv} order`);
+    }
+    if (les.kind === 'math') for (const it of c.items) {
+      const m = it.cue.match(/(\d+) ([+−×]) (\d+)/);
+      const [a, op, b] = [Number(m[1]), m[2], Number(m[3])];
+      const ans = op === '+' ? a + b : op === '−' ? a - b : a * b;
+      assert.equal(String(ans), it.label, `level ${lv}: ${it.cue}`);
+      assert.ok(ans >= 0 && ans <= 100);
+    }
+    if (les.kind === 'poem') assert.equal(c.items.map(i => i.label).join(''), les.line);
+    if (les.subject === '英语') assert.ok(c.items.every(i => i.say[0][1] === 'en'));
   }
+  assert.ok(subjects['语文'] >= 50, `语文 ${subjects['语文']}`);
+  assert.ok(subjects['数学'] >= 15 && subjects['英语'] >= 15 && subjects['常识'] >= 4, JSON.stringify(subjects));
   assert.equal(L.levelConfig(55).order, 'desc');
+});
+
+test('lesson difficulty follows the grades', () => {
+  assert.match(L.levelConfig(7).lesson.title, /5 以内加法/);
+  assert.match(L.levelConfig(87).lesson.title, /乘法口诀 6–9/);
+  assert.equal(L.levelConfig(5).lesson.title, '古诗《咏鹅》');
+  assert.equal(L.levelConfig(40).lesson.line, '疑是地上霜');
+  assert.equal(L.levelConfig(4).lesson.subject, '英语');
 });
 
 test('difficulty grows gently', () => {
   assert.ok(L.levelConfig(100).robotSpeed > L.levelConfig(1).robotSpeed);
   assert.ok(L.levelConfig(100).fireEvery < L.levelConfig(1).fireEvery);
-  assert.ok(L.levelConfig(1).numbers.length <= 3);
+  assert.ok(L.levelConfig(1).items.length <= 3);
 });
 
 test('every level has story before and after', () => {

@@ -2,6 +2,7 @@
 'use strict';
 (function (root) {
   const STORY = root.STORY || (typeof require !== 'undefined' ? require('./story.js') : null);
+  const LESSONS = root.LESSONS || (typeof require !== 'undefined' ? require('./lessons.js') : null);
   const COLS = 20, ROWS = 12;
   // Tiles: '.' floor, 'B' brick (breakable), 'S' steel (solid), 'G' bush (drive-through, hides you)
   const PLAYER_SPAWN = { c: 9.5, r: 10.5 };
@@ -89,32 +90,23 @@
     return arr;
   }
 
-  function robotNumbers(level, count) {
-    const rule = STORY.worldOf(level).rule;
-    const R = rng(level * 31337 + 5);
-    let nums;
-    if (rule.kind === 'count') nums = Array.from({ length: count }, (_, i) => rule.start + i * rule.step);
-    else if (rule.kind === 'countdown') nums = Array.from({ length: count }, (_, i) => i + 1);
-    else {
-      const set = new Set();
-      while (set.size < count) set.add(1 + Math.floor(R() * rule.max));
-      nums = [...set];
-    }
-    return shuffle(nums, R); // spawn order is mixed so kids have to look
-  }
-
   function levelConfig(level) {
     const t = (level - 1) / (STORY.LEVEL_COUNT - 1);
     const stage = STORY.stageOf(level);
     const world = STORY.worldOf(level);
     const boss = STORY.isBossLevel(level);
-    const robots = boss ? 2 + Math.floor((level - 1) / 25) : Math.min(3 + Math.floor((stage - 1) / 3) + Math.floor((level - 1) / 20), 10);
+    const lesson = LESSONS.lessonFor(level);
+    const R = rng(level * 4243 + 7);
+    const items = lesson.items.map((it, i) => ({ ...it, idx: it.idx ?? i }));
+    // Spawn order: poems come out in order, everything else is mixed so kids have to look.
+    if (!lesson.inOrder) shuffle(items, R);
     return {
       level, world, stage, boss,
       map: generateMap(level),
-      numbers: robotNumbers(level, robots),
+      lesson, items,
+      ordered: lesson.ordered,
       order: world.rule.order,
-      maxAlive: Math.min(2 + Math.floor((level - 1) / 20), 5),
+      maxAlive: Math.min(3 + Math.floor((level - 1) / 25), 5),
       robotSpeed: lerp(0.9, 1.9, t) + stage * 0.02,
       fireEvery: lerp(3.8, 2.0, t),
       bulletSpeed: lerp(2.8, 4.6, t),

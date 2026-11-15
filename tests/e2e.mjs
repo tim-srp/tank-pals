@@ -39,8 +39,8 @@ async function winByShooting(page) {
       const t = window.__tank, G = t.G;
       if (!G || t.mode !== 'play') return 'done';
       G.player.inv = 5; // keep the test player safe
-      const exp = t.expectedNumber();
-      const target = G.robots.find(r => r.state === 'run' && r.num === exp) || (exp == null && G.robots.find(r => r.state === 'run' && r.boss));
+      const tgt = t.pickTarget();
+      const target = tgt ? (tgt.state === 'run' ? tgt : null) : G.robots.find(r => r.state === 'run' && r.boss);
       if (target && !G.bullets.some(b => b.mine)) G.bullets.push({ x: target.x, y: target.y, vx: 0.01, vy: 0, mine: true, r: 0.13, life: 1 });
       return 'go';
     });
@@ -130,13 +130,31 @@ console.log('Chromium (touch):');
     assert.equal((await page.evaluate(() => window.__tank.music)).playing, true);
   });
 
-  await step('robots spawn with numbers; hitting in order gives rainbow bonus; level 1 is won', async () => {
-    await page.waitForFunction(() => window.__tank.G.robots.some(r => r.state === 'run'), null, { timeout: 8000 });
+  await step('robots carry characters; the question names one; right answers give the rainbow; level 1 is won', async () => {
+    await page.waitForFunction(() => window.__tank.G.robots.some(r => r.state === 'run') && window.__tank.target(), null, { timeout: 8000 });
+    const q = await page.locator('#hud-next').textContent();
+    assert.match(q, /语文.*找字/, `question shown: ${q}`);
+    const t = await page.evaluate(() => window.__tank.target());
+    assert.ok(['山', '水', '火'].includes(t.label));
     await page.screenshot({ path: `${OUT}/04-robots.png` });
+    // a wrong answer still puts the robot to sleep but keeps the same question
+    const wrong = await page.evaluate(() => {
+      const G = window.__tank.G, tgt = window.__tank.pickTarget();
+      const other = G.robots.find(r => r.state === 'run' && r !== tgt);
+      if (!other) return null;
+      G.bullets.push({ x: other.x, y: other.y, vx: 0.01, vy: 0, mine: true, r: 0.13, life: 1 });
+      return { other: other.item.label, target: tgt.item.label };
+    });
+    if (wrong) {
+      await sleep(300);
+      const after = await page.evaluate(() => ({ t: window.__tank.target()?.label, order: window.__tank.G.orderHits, asleep: window.__tank.G.asleep }));
+      assert.equal(after.t, wrong.target, 'question stays the same after a wrong answer');
+      assert.equal(after.order, 0); assert.equal(after.asleep, 1);
+    }
     await winByShooting(page);
     await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 8000 });
-    const g = await page.evaluate(() => ({ order: window.__tank.G.orderHits, n: window.__tank.G.cfg.numbers.length, unlocked: window.__tank.save.unlocked }));
-    assert.equal(g.order, g.n, 'all hit in order');
+    const g = await page.evaluate(() => ({ order: window.__tank.G.orderHits, n: window.__tank.G.cfg.items.length, unlocked: window.__tank.save.unlocked }));
+    assert.equal(g.order, g.n - (wrong ? 1 : 0), 'right answers counted');
     assert.equal(g.unlocked, 2);
     await page.screenshot({ path: `${OUT}/05-win.png` });
   });
@@ -144,6 +162,8 @@ console.log('Chromium (touch):');
   await step('after-win story, then level 2 intro story', async () => {
     await page.locator('#btn-win-next').tap();
     await page.waitForFunction(() => window.__tank.mode === 'story');
+    assert.match(await page.locator('#story-text').textContent(), /认识了：山、水、火/);
+    await page.locator('#story-next').tap();
     assert.match(await page.locator('#story-text').textContent(), /醒过来/);
     await page.locator('#story-next').tap();
     await page.waitForFunction(() => window.__tank.mode === 'story' && /第 2 关/.test(document.getElementById('story-level').textContent));
@@ -182,14 +202,50 @@ console.log('Chromium (touch):');
     await winByShooting(page);
     await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 10000 });
     await page.locator('#btn-win-next').tap();
-    assert.match(await page.locator('#story-text').textContent(), /稻草人|谢谢/);
+    assert.match(await page.locator('#story-text').textContent(), /咏鹅/); await page.locator('#story-next').tap(); assert.match(await page.locator('#story-text').textContent(), /稻草人|谢谢/);
     await page.evaluate(() => window.__tank.startLevel(55));
     await tapThroughStory(page);
     assert.equal(await page.evaluate(() => window.__tank.G.cfg.order), 'desc');
     await winByShooting(page);
     await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 10000 });
-    const g = await page.evaluate(() => ({ order: window.__tank.G.orderHits, n: window.__tank.G.cfg.numbers.length }));
+    const g = await page.evaluate(() => ({ order: window.__tank.G.orderHits, n: window.__tank.G.cfg.items.length }));
     assert.equal(g.order, g.n, 'countdown order rewarded');
+  });
+
+  await step('poem level: characters come in order and the line lights up', async () => {
+    await page.evaluate(() => window.__tank.startLevel(35));
+    await tapThroughStory(page);
+    await page.waitForFunction(() => window.__tank.target(), null, { timeout: 8000 });
+    assert.match(await page.locator('#hud-next').textContent(), /静夜思.*床前明月光/);
+    await winByShooting(page);
+    await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 15000 });
+    assert.equal(await page.evaluate(() => window.__tank.G.orderHits), 5);
+    await page.locator('#btn-win-next').tap();
+    assert.match(await page.locator('#story-text').textContent(), /床前明月光/);
+  });
+
+  await step('English level: question in English, robots carry pictures', async () => {
+    await page.evaluate(() => window.__tank.startLevel(14));
+    await tapThroughStory(page);
+    await page.waitForFunction(() => window.__tank.target(), null, { timeout: 8000 });
+    assert.match(await page.locator('#hud-next').textContent(), /英语.*Find (cat|dog|bird|fish)/);
+    await sleep(1500);
+    await page.screenshot({ path: `${OUT}/11-english.png` });
+    await winByShooting(page);
+    await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 15000 });
+  });
+
+  await step('math level: the answer robot carries the result', async () => {
+    await page.evaluate(() => window.__tank.startLevel(87));
+    await tapThroughStory(page);
+    await page.waitForFunction(() => window.__tank.target(), null, { timeout: 8000 });
+    const t = await page.evaluate(() => window.__tank.target());
+    const m = t.cue.match(/(\d+) × (\d+)/);
+    assert.equal(String(Number(m[1]) * Number(m[2])), t.label);
+    await sleep(1500);
+    await page.screenshot({ path: `${OUT}/12-math.png` });
+    await winByShooting(page);
+    await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 15000 });
   });
 
   await step('level select shows 10 worlds with 10 levels each', async () => {
@@ -231,6 +287,7 @@ console.log('Chromium (touch):');
     await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 10000 });
     await page.locator('#btn-win-next').tap();
     await page.locator('#story-next').tap();
+    await page.locator('#story-next').tap();
     await page.waitForFunction(() => window.__tank.mode === 'rest');
     await page.screenshot({ path: `${OUT}/10-rest.png` });
     await page.locator('#btn-rest-menu').tap();
@@ -257,6 +314,7 @@ console.log('Chromium (touch):');
     await winByShooting(page);
     await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 10000 });
     await page.locator('#btn-win-next').tap();
+    await page.locator('#story-next').tap();
     await page.locator('#story-next').tap();
     await page.waitForFunction(() => window.__tank.mode === 'rest');
   });

@@ -126,18 +126,25 @@
   window.addEventListener('pointerdown', () => { if (save.settings.sound) audio(); }, { once: true });
 
   let voices = [];
-  function loadVoices() { try { voices = speechSynthesis.getVoices().filter(v => /zh/i.test(v.lang)); } catch (e) { voices = []; } }
+  function loadVoices() { try { voices = speechSynthesis.getVoices(); } catch (e) { voices = []; } }
   if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-  function speak(text, interrupt = true) {
-    if (!save.settings.voice || !('speechSynthesis' in window)) return;
+  function speak(text, interrupt = true, lang = 'zh') {
+    if (!save.settings.voice || !('speechSynthesis' in window) || !text) return;
     try {
       if (interrupt) speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text.replace(/[🧠📖]/gu, ''));
-      u.lang = 'zh-CN'; u.rate = 0.95; u.pitch = 1.1;
-      const v = voices.find(v => /zh[-_]CN/i.test(v.lang)) || voices[0];
+      const u = new SpeechSynthesisUtterance(text.replace(/[🧠📖📚]/gu, ''));
+      const en = lang === 'en';
+      u.lang = en ? 'en-US' : 'zh-CN'; u.rate = en ? 0.85 : 0.95; u.pitch = 1.1;
+      const v = en ? (voices.find(v => /en[-_]US/i.test(v.lang)) || voices.find(v => /^en/i.test(v.lang)))
+                   : (voices.find(v => /zh[-_]CN/i.test(v.lang)) || voices.find(v => /zh/i.test(v.lang)));
       if (v) u.voice = v;
       speechSynthesis.speak(u);
     } catch (e) { /* ignore */ }
+  }
+  // Speak a list of [text, lang] parts one after another.
+  function sayParts(parts, interrupt = false) {
+    if (!parts) return;
+    parts.forEach(([t, l], i) => speak(t, interrupt && i === 0, l));
   }
   function hush() { try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } }
 
@@ -173,9 +180,10 @@
       level, cfg, grid,
       player: { x: PLAYER_SPAWN.c, y: PLAYER_SPAWN.r, a: -Math.PI / 2, r: 0.36, shield: 5, inv: 1.2, fireCd: 0, moving: 0, tread: 0 },
       robots: [], bullets: [], pickups: [], parts: [],
-      queue: cfg.numbers.slice(),
-      spawnCd: 0.6, total: cfg.numbers.length + (cfg.boss ? 1 : 0),
+      queue: cfg.items.slice(),
+      spawnCd: 0.6, total: cfg.items.length + (cfg.boss ? 1 : 0),
       asleep: 0, orderHits: 0, numberedHits: 0, starsGot: 0,
+      target: null, lastTarget: null, targetT: 0, doneIdx: new Set(), learned: [],
       time: 0, ended: false, endT: 0, result: null, colorIdx: 0,
     };
     if (cfg.boss) {
@@ -185,20 +193,36 @@
     }
   }
 
-  function makeRobot(x, y, num, extra = {}) {
+  function makeRobot(x, y, item, extra = {}) {
     return {
-      x, y, a: Math.PI / 2, r: extra.boss ? 0.78 : 0.36, num,
-      color: extra.color || ROBOT_COLORS[(G.colorIdx++) % ROBOT_COLORS.length],
+      x, y, a: Math.PI / 2, r: extra.boss ? 0.78 : 0.36, item,
+      color: extra.color || (item && item.color) || ROBOT_COLORS[(G.colorIdx++) % ROBOT_COLORS.length],
       state: 'spawn', t: 0, moveT: 0, fireT: rand(1.6, 2.8), dir: Math.PI / 2, blink: rand(1, 4), flash: 0, tread: 0,
       ...extra,
     };
   }
 
-  // Which number should be hit next to earn the rainbow bonus.
-  function expectedNumber() {
-    const nums = G.robots.filter(r => r.num != null && r.state !== 'sleep').map(r => r.num);
-    if (!nums.length) return null;
-    return G.cfg.order === 'desc' ? Math.max(...nums) : Math.min(...nums);
+  // The robot that answers the current question (the rainbow bonus).
+  // Ordered lessons (counting, poems) go by position; others pick one awake robot and keep it.
+  function pickTarget() {
+    const alive = G.robots.filter(r => r.item && r.state !== 'sleep');
+    if (!alive.length) return null;
+    if (G.cfg.ordered) return alive.reduce((a, b) => (a.item.idx <= b.item.idx ? a : b));
+    if (G.target && alive.includes(G.target)) return G.target;
+    const running = alive.filter(r => r.state === 'run');
+    const pool = running.length ? running : alive;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  function refreshTarget(dt) {
+    G.target = pickTarget();
+    G.targetT += dt;
+    if (G.target !== G.lastTarget) {
+      G.lastTarget = G.target; G.targetT = 0;
+      if (G.target && G.target.item.say) sayParts(G.target.item.say);
+    }
+  }
+  function repeatQuestion() {
+    if (mode === 'play' && G && G.target && G.target.item.say) sayParts(G.target.item.say, true);
   }
 
   // ---------- Collision helpers ----------
@@ -302,7 +326,7 @@
   const app = $('app');
   app.addEventListener('pointerdown', (e) => {
     if (mode !== 'play') return;
-    if (e.target.closest('button, .screen')) return;
+    if (e.target.closest('button, .screen, #hud-next')) return;
     e.preventDefault();
     if (e.clientX < W * 0.5) {
       if (joyId != null) return;
@@ -406,6 +430,7 @@
       }
     }
     G.robots = G.robots.filter(r => !r.gone);
+    refreshTarget(dt);
 
     // Bullets
     for (const b of G.bullets) {
@@ -505,17 +530,26 @@
       speak(`${r.name}睡着啦`);
       return;
     }
-    const expected = expectedNumber();
+    const target = pickTarget();
+    let right = target === r;
+    // Same character twice in a poem line: either robot counts, keep the order consistent.
+    if (!right && target && G.cfg.ordered && target.item.label === r.item.label) {
+      [target.item.idx, r.item.idx] = [r.item.idx, target.item.idx]; right = true;
+    }
     sleepRobot(r);
     G.numberedHits++;
-    if (r.num === expected) {
+    G.doneIdx.add(r.item.idx);
+    const shown = r.item.label || '';
+    if (right) {
       G.orderHits++; rainbow(r.x, r.y); sfx.ding();
-      floatText(r.x, r.y - 0.6, `${r.num} 对啦！🌈`, '#fff59d');
-      speak(S.chineseNumber(r.num), false);
+      G.learned.push(r.item.label);
+      floatText(r.x, r.y - 0.6, `${shown} 对啦！🌈`, '#fff59d');
+      sayParts(r.item.hit, true);
     } else {
-      floatText(r.x, r.y - 0.6, String(r.num), '#ffffff');
-      speak(S.chineseNumber(r.num), false);
+      if (shown) floatText(r.x, r.y - 0.6, shown, '#ffffff');
+      sayParts(r.item.name, true);
     }
+    if (right) { G.target = null; G.lastTarget = null; }
   }
   function sleepRobot(r) { r.state = 'sleep'; r.t = 0; G.asleep++; sfx.sleep(); burst(r.x, r.y, r.color, 10, 2); }
 
@@ -669,17 +703,33 @@
       ctx.fillStyle = '#ff5252'; rr(x, y, w * (r.hp / r.maxHp), 0.18, 0.09); ctx.fill();
       return;
     }
-    if (r.num == null) return;
-    const exp = expectedNumber() === r.num;
-    const x = r.x, y = r.y - 0.62;
-    if (exp) {
-      ctx.strokeStyle = `hsla(${(G.time * 200) % 360},90%,60%,.95)`; ctx.lineWidth = 0.07;
-      ctx.beginPath(); ctx.arc(x, y, 0.3 + Math.sin(G.time * 6) * 0.03, 0, TAU); ctx.stroke();
+    if (!r.item) return;
+    // After 12 seconds without finding it, the answer starts to glow as a gentle hint.
+    const hint = G.target === r && G.targetT > 12;
+    const label = r.item.label;
+    const x = r.x, y = r.y - 0.66;
+    if (!label) { // colour lessons: the robot's colour is the answer
+      if (hint) { ctx.strokeStyle = `hsla(${(G.time * 200) % 360},90%,60%,.95)`; ctx.lineWidth = 0.07; ctx.beginPath(); ctx.arc(r.x, r.y, 0.5, 0, TAU); ctx.stroke(); }
+      return;
     }
-    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(x, y, 0.25, 0, TAU); ctx.fill();
-    ctx.fillStyle = exp ? '#e65100' : '#37474f';
-    ctx.font = `bold ${r.num >= 10 ? 0.26 : 0.32}px -apple-system, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(String(r.num), x, y + 0.02);
+    const pinyin = /[a-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]/i.test(label);
+    const emoji = /\p{Extended_Pictographic}/u.test(label);
+    const size = emoji ? 0.42 : pinyin ? 0.3 : label.length >= 3 ? 0.28 : label.length === 2 && !/^\d+$/.test(label) ? 0.32 : 0.4;
+    // Draw in screen pixels: emoji and small text render badly when scaled from tiny font sizes.
+    const T = tile, px = ox + x * T, py = oy + y * T;
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.font = `bold ${Math.round(size * T)}px -apple-system, "PingFang SC", "Apple Color Emoji", sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const w = emoji ? 0.66 * T : Math.max(0.56 * T, ctx.measureText(label).width + 0.24 * T), h = (emoji ? 0.6 : 0.52) * T;
+    if (hint) {
+      ctx.strokeStyle = `hsla(${(G.time * 200) % 360},90%,60%,.95)`; ctx.lineWidth = 0.07 * T;
+      rr(px - w / 2 - 0.06 * T, py - h / 2 - 0.06 * T, w + 0.12 * T, h + 0.12 * T, 0.3 * T); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; rr(px - w / 2, py - h / 2 + 0.04 * T, w, h, 0.24 * T); ctx.fill();
+    ctx.fillStyle = '#ffffff'; rr(px - w / 2, py - h / 2, w, h, 0.24 * T); ctx.fill();
+    ctx.fillStyle = '#263238';
+    ctx.fillText(label, px, py + 0.02 * T);
+    ctx.restore();
   }
   function drawBullet(b) {
     if (b.mine) {
@@ -726,11 +776,19 @@
     const p = G.player;
     setHud('hud-shield', '❤️'.repeat(Math.max(0, p.shield)) + '<span style="opacity:.25">' + '❤️'.repeat(5 - Math.max(0, p.shield)) + '</span>');
     setHud('hud-level', `${G.cfg.world.emoji} 第 ${G.level} 关`);
-    const exp = expectedNumber();
-    const hint = G.cfg.order === 'desc' ? '倒着数' : '按顺序';
-    setHud('hud-next', exp != null ? `${hint}，下一个：<b>${exp}</b>` : (G.cfg.boss ? `${G.cfg.bossInfo.face} 让大块头睡着` : '🌈 找机器人'));
+    setHud('hud-next', questionHtml());
     setHud('hud-robots', `🤖 ${G.total - G.asleep}`);
     setHud('hud-stars', `⭐ ${G.starsGot}`);
+  }
+  function questionHtml() {
+    const L = G.cfg.lesson, tag = `<span class="tag s-${L.subject}">${L.subject}</span>`;
+    if (L.kind === 'poem') {
+      const cur = G.target ? G.target.item.idx : -1;
+      return tag + `《${L.poem.title}》 ` + [...L.line].map((ch, i) => `<span class="${G.doneIdx.has(i) ? 'done' : i === cur ? 'cur' : 'todo'}">${ch}</span>`).join('');
+    }
+    if (G.target) return tag + G.target.item.cue + (G.target.item.say ? ' <span class="replay">🔊</span>' : '');
+    if (G.cfg.boss && G.robots.some(r => r.boss && r.state !== 'sleep')) return `${G.cfg.bossInfo.face} 让大块头睡着`;
+    return tag + (G.queue.length ? '机器人马上来…' : '🌈 找机器人');
   }
   let toastTimer = 0;
   function toast(text, secs = 3) { $('toast').textContent = text; $('toast').classList.remove('hidden'); toastTimer = secs; }
@@ -785,7 +843,8 @@
     mode = 'story'; storyLines = lines; storyIdx = 0; storyDone = done;
     const w = S.worldOf(level);
     $('story-world').textContent = `${w.emoji} ${w.name}`;
-    $('story-level').textContent = S.isBossLevel(level) ? `第 ${level} 关 · 大块头` : `第 ${level} 关`;
+    const L = G && G.cfg.lesson;
+    $('story-level').textContent = `第 ${level} 关` + (S.isBossLevel(level) ? ' · 大块头' : '') + (L ? ` · ${L.subject} · ${L.title}` : '');
     show('story'); renderStory();
   }
   function renderStory() {
@@ -813,8 +872,8 @@
   function levelIntroLines(level) {
     const lines = S.storyBefore(level).slice();
     const cfg = G.cfg;
-    if (cfg.boss) lines.push([S.GRANDPA, `打败${cfg.bossInfo.name}要碰它 ${cfg.bossInfo.hp} 下。`]);
-    else lines.push([S.GRANDPA, `这一关有 ${cfg.numbers.length} 个机器人。${cfg.world.rule.hint}。`]);
+    if (cfg.boss) lines.push([S.GRANDPA, `打败${cfg.bossInfo.name}要碰它 ${cfg.bossInfo.hp} 下。它的小跟班身上也有题目哦。`]);
+    lines.push([{ name: `扳手爷爷 · ${cfg.lesson.subject}`, face: { '语文': '📝', '数学': '🔢', '英语': '🔤', '常识': '💡' }[cfg.lesson.subject] }, cfg.lesson.teach]);
     return lines;
   }
   function play() {
@@ -838,13 +897,14 @@
     mode = 'win'; show('win');
     $('win-stars').textContent = '⭐'.repeat(rating) + '☆'.repeat(3 - rating);
     $('win-title').textContent = ['', '过关啦！', '真厉害！', '太棒啦！'][rating];
-    const numbered = G.cfg.numbers.length;
-    $('win-detail').innerHTML = `捡到 ⭐ ${G.starsGot} 颗` + (numbered ? `　·　🌈 按顺序 ${G.orderHits} / ${numbered}` : '');
+    const n = G.cfg.items.length;
+    $('win-detail').innerHTML = `捡到 ⭐ ${G.starsGot} 颗　·　🌈 答对 ${G.orderHits} / ${n}<br><span class="muted">${G.cfg.lesson.subject} · ${G.cfg.lesson.title}</span>`;
     speak($('win-title').textContent);
   }
   function afterWin() {
     const L = G.level;
-    showStory(L, S.storyAfter(L, G.asleep), () => {
+    const recap = [[{ name: '扳手爷爷', face: '📚' }, G.cfg.lesson.recap]];
+    showStory(L, [...recap, ...S.storyAfter(L, G.asleep)], () => {
       if (L >= S.LEVEL_COUNT) return goFinale();
       const lim = limitReached();
       if (lim) return goRest(lim);
@@ -912,6 +972,7 @@
   on('btn-rest-menu', goMenu);
   on('btn-finale-menu', goMenu);
   on('btn-pause', pause);
+  $('hud-next').addEventListener('pointerdown', (e) => { e.stopPropagation(); repeatQuestion(); });
   on('btn-resume', resume);
   on('btn-restart', () => startLevel(G.level));
   on('btn-pause-select', goSelect);
@@ -951,7 +1012,8 @@
   // Test hook (used by the automated end-to-end tests).
   window.__tank = {
     get G() { return G; }, get music() { return { song: music.song, playing: !!music.timer }; }, get mode() { return mode; }, get save() { return save; },
-    expectedNumber: () => G && expectedNumber(),
+    target: () => G && G.target && { label: G.target.item.label, idx: G.target.item.idx, cue: G.target.item.cue },
+    pickTarget: () => G && pickTarget(),
     startLevel, goMenu, persist,
     tileToScreen: (c, r) => ({ x: ox + c * tile, y: oy + r * tile }),
   };
