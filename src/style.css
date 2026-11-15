@@ -153,3 +153,20 @@ h2 { margin: 4px 0; font-size: 28px; }
 }
 #rotate div { font-size: 80px; }
 @media (orientation: portrait) and (max-width: 1100px) { #rotate { display: flex; } }
+
+/* Word cards in the story screen */
+.is-card #story-face { width: 170px; height: 170px; font-size: 96px; background: #fff8dc; cursor: pointer; }
+.swatch { display: inline-block; width: 110px; height: 110px; border-radius: 24px; box-shadow: inset 0 0 0 3px rgba(0,0,0,.12); }
+.swatch.small { width: 40px; height: 40px; border-radius: 10px; }
+.card-word { display: block; font-size: 64px; font-weight: 800; color: var(--blue-dark); letter-spacing: 2px; font-family: -apple-system, "SF Pro Rounded", sans-serif; }
+.card-zh { display: block; font-size: 28px; color: var(--muted); }
+.card-tap { display: block; font-size: 15px; color: #b0b7c3; margin-top: 6px; }
+/* Word book */
+#word-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; max-height: 56vh; overflow: auto; padding: 4px; }
+#word-grid .word { position: relative; background: #f2f6ff; border-radius: 16px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; box-shadow: 0 2px 0 #d6e0f2; }
+#word-grid .word .pic { font-size: 40px; line-height: 48px; }
+#word-grid .word b { font-size: 22px; color: var(--blue-dark); }
+#word-grid .word small { color: var(--muted); font-size: 14px; }
+#word-grid .word i { position: absolute; top: 6px; right: 8px; font-style: normal; }
+#word-grid .word.good { background: #fff8dc; }
+#word-grid .word.weak { background: #ffeef0; }

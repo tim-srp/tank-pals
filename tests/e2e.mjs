@@ -29,7 +29,7 @@ const mode = (page) => page.evaluate(() => window.__tank.mode);
 const visible = (page, id) => page.locator('#' + id).isVisible();
 async function tapThroughStory(page) {
   await page.waitForFunction(() => window.__tank.mode === 'story');
-  for (let i = 0; i < 12 && (await mode(page)) === 'story'; i++) await page.locator('#story-next').tap();
+  for (let i = 0; i < 25 && (await mode(page)) === 'story'; i++) await page.locator('#story-next').tap();
   await page.waitForFunction(() => window.__tank.mode === 'play');
 }
 // Put every robot to sleep in order by placing the player's energy balls on them (uses the real collision code).
@@ -69,6 +69,10 @@ console.log('Chromium (touch):');
     await page.waitForFunction(() => !!document.fullscreenElement, null, { timeout: 3000 }); // start enters full screen
     assert.match(await page.locator('#story-text').textContent(), /乱码云/);
     await page.screenshot({ path: `${OUT}/02-story.png` });
+    // Bee teaches the new words with picture cards before the level
+    for (let i = 0; i < 12 && !(await page.locator('.card-word').isVisible()); i++) await page.locator('#story-next').tap();
+    assert.equal(await page.locator('.card-word').textContent(), 'cat');
+    await page.screenshot({ path: `${OUT}/02b-card.png` });
     await tapThroughStory(page);
     assert.ok(await visible(page, 'controls'));
   });
@@ -130,12 +134,12 @@ console.log('Chromium (touch):');
     assert.equal((await page.evaluate(() => window.__tank.music)).playing, true);
   });
 
-  await step('robots carry characters; the question names one; right answers give the rainbow; level 1 is won', async () => {
+  await step('robots carry pictures; the English question names one; right answers give the rainbow; level 1 is won', async () => {
     await page.waitForFunction(() => window.__tank.G.robots.some(r => r.state === 'run') && window.__tank.target(), null, { timeout: 8000 });
     const q = await page.locator('#hud-next').textContent();
-    assert.match(q, /语文.*找字/, `question shown: ${q}`);
+    assert.match(q, /英语.*Find (cat|dog|bird|fish)/, `question shown: ${q}`);
     const t = await page.evaluate(() => window.__tank.target());
-    assert.ok(['山', '水', '火'].includes(t.label));
+    assert.ok(['🐱', '🐶', '🐦', '🐟'].includes(t.label));
     await page.screenshot({ path: `${OUT}/04-robots.png` });
     // a wrong answer still puts the robot to sleep but keeps the same question
     const wrong = await page.evaluate(() => {
@@ -162,13 +166,27 @@ console.log('Chromium (touch):');
   await step('after-win story, then level 2 intro story', async () => {
     await page.locator('#btn-win-next').tap();
     await page.waitForFunction(() => window.__tank.mode === 'story');
-    assert.match(await page.locator('#story-text').textContent(), /认识了：山、水、火/);
+    assert.match(await page.locator('#story-text').textContent(), /新单词：cat（猫）/);
     await page.locator('#story-next').tap();
     assert.match(await page.locator('#story-text').textContent(), /醒过来/);
     await page.locator('#story-next').tap();
     await page.waitForFunction(() => window.__tank.mode === 'story' && /第 2 关/.test(document.getElementById('story-level').textContent));
     await tapThroughStory(page);
     assert.equal(await page.evaluate(() => window.__tank.G.level), 2);
+  });
+
+  await step('word book lists the words learned, with right/wrong counts kept on this device', async () => {
+    const stats = await page.evaluate(() => window.__tank.save.words);
+    assert.ok(Object.keys(stats).length >= 3, JSON.stringify(stats));
+    await page.locator('#btn-pause').tap();
+    await page.locator('#btn-pause-menu').tap();
+    await page.locator('#btn-words').tap();
+    assert.equal(await page.locator('#word-grid .word').count(), 4);
+    assert.match(await page.locator('#words-summary').textContent(), /学过 4 个单词/);
+    await page.screenshot({ path: `${OUT}/13-words.png` });
+    await page.locator('#scr-words [data-go="menu"]').tap();
+    await page.locator('#btn-continue').tap();
+    await tapThroughStory(page);
   });
 
   await step('getting hit loses shield; 0 shield shows the gentle retry screen', async () => {
@@ -192,7 +210,7 @@ console.log('Chromium (touch):');
     await page.waitForFunction(() => { const [c, r] = window.__brick; return window.__tank.G.grid[r][c] === '.'; }, null, { timeout: 3000 });
   });
 
-  await step('boss level (10) and countdown world (level 55) can be won', async () => {
+  await step('boss level (10) and letters level (55) can be won', async () => {
     await page.evaluate(() => { window.__tank.save.unlocked = 100; window.__tank.startLevel(10); });
     await tapThroughStory(page);
     assert.ok(await page.evaluate(() => window.__tank.G.robots.some(r => r.boss)));
@@ -202,7 +220,7 @@ console.log('Chromium (touch):');
     await winByShooting(page);
     await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 10000 });
     await page.locator('#btn-win-next').tap();
-    assert.match(await page.locator('#story-text').textContent(), /咏鹅/); await page.locator('#story-next').tap(); assert.match(await page.locator('#story-text').textContent(), /稻草人|谢谢/);
+    assert.match(await page.locator('#story-text').textContent(), /练习了/); await page.locator('#story-next').tap(); assert.match(await page.locator('#story-text').textContent(), /稻草人|谢谢/);
     await page.evaluate(() => window.__tank.startLevel(55));
     await tapThroughStory(page);
     assert.equal(await page.evaluate(() => window.__tank.G.cfg.order), 'desc');
@@ -213,7 +231,7 @@ console.log('Chromium (touch):');
   });
 
   await step('poem level: characters come in order and the line lights up', async () => {
-    await page.evaluate(() => window.__tank.startLevel(35));
+    await page.evaluate(() => window.__tank.startLevel(38));
     await tapThroughStory(page);
     await page.waitForFunction(() => window.__tank.target(), null, { timeout: 8000 });
     assert.match(await page.locator('#hud-next').textContent(), /静夜思.*床前明月光/);
@@ -228,7 +246,7 @@ console.log('Chromium (touch):');
     await page.evaluate(() => window.__tank.startLevel(14));
     await tapThroughStory(page);
     await page.waitForFunction(() => window.__tank.target(), null, { timeout: 8000 });
-    assert.match(await page.locator('#hud-next').textContent(), /英语.*Find (cat|dog|bird|fish)/);
+    assert.match(await page.locator('#hud-next').textContent(), /英语.*Find (apple|banana|orange|grape)/);
     await sleep(1500);
     await page.screenshot({ path: `${OUT}/11-english.png` });
     await winByShooting(page);
@@ -236,7 +254,7 @@ console.log('Chromium (touch):');
   });
 
   await step('math level: the answer robot carries the result', async () => {
-    await page.evaluate(() => window.__tank.startLevel(87));
+    await page.evaluate(() => window.__tank.startLevel(86));
     await tapThroughStory(page);
     await page.waitForFunction(() => window.__tank.target(), null, { timeout: 8000 });
     const t = await page.evaluate(() => window.__tank.target());

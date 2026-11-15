@@ -201,7 +201,7 @@
       recap: lineIdx === 0 ? `背了《${p.title}》：${line}` : `《${p.title}》全诗：${p.full}`,
     };
   }
-  function countLesson(level) {
+  function countLesson(level, english) {
     const rule = STORY.worldOf(level).rule;
     const n = 3 + Math.floor((level - 1) / 25);
     let nums;
@@ -209,14 +209,14 @@
     else if (rule.kind === 'countdown') nums = Array.from({ length: n + 1 }, (_, i) => n + 1 - i);
     else { const R = rng(level * 31337); const s = new Set(); while (s.size < n + 1) s.add(ri(R, 1, rule.max)); nums = [...s].sort((a, b) => a - b); }
     return {
-      subject: '数学', title: rule.order === 'desc' ? '倒着数' : '数一数', kind: 'count', ordered: true,
-      teach: `${rule.hint}。按顺序让机器人睡着！`,
-      items: nums.map((v, i) => ({ label: String(v), idx: i, cue: `${rule.order === 'desc' ? '倒着数' : '按顺序'}，下一个：<b>${v}</b>`, say: null, hit: [zh(cn(v))], name: [zh(cn(v))] })),
+      subject: '数学', title: english ? '用英语数数 Count' : rule.order === 'desc' ? '倒着数' : '数一数', kind: 'count', ordered: true,
+      teach: english ? `用英语数数：${nums.map(enNum).join('、')}。按顺序找！` : `${rule.hint}。按顺序让机器人睡着！`,
+      items: nums.map((v, i) => ({ label: String(v), idx: i, cue: `${english ? 'Count' : rule.order === 'desc' ? '倒着数' : '按顺序'}，下一个：<b>${v}</b>`, say: null, hit: [english ? en(enNum(v)) : zh(cn(v))], name: [english ? en(enNum(v)) : zh(cn(v))] })),
       recap: `数了：${nums.join('、')}`,
     };
   }
   // Arithmetic: answers are distinct; a question is made for each answer.
-  function mathLesson(level, type, count) {
+  function mathLesson(level, type, count, english) {
     const R = rng(level * 9173 + 11);
     const used = new Set(), items = [];
     let guard = 0;
@@ -238,12 +238,15 @@
       if (used.has(ans)) continue;
       used.add(ans);
       const word = { '+': '加', '−': '减', '×': '乘' }[op];
-      items.push({ label: String(ans), cue: `<b>${a} ${op} ${b} = ？</b>`, say: [zh(`${cn(a)}${word}${cn(b)}等于几？`)], hit: [zh(`${cn(a)}${word}${cn(b)}等于${cn(ans)}`)], name: [zh(cn(ans))] });
+      const ew = { '+': 'plus', '−': 'minus', '×': 'times' }[op];
+      items.push(english
+        ? { label: String(ans), cue: `<b>${a} ${op} ${b} = ？</b>`, say: [en(`${enNum(a)} ${ew} ${enNum(b)}?`)], hit: [en(`${enNum(a)} ${ew} ${enNum(b)} is ${enNum(ans)}`)], name: [en(enNum(ans))] }
+        : { label: String(ans), cue: `<b>${a} ${op} ${b} = ？</b>`, say: [zh(`${cn(a)}${word}${cn(b)}等于几？`)], hit: [zh(`${cn(a)}${word}${cn(b)}等于${cn(ans)}`)], name: [zh(cn(ans))] });
     }
     const names = { add5: '5 以内加法', add10: '10 以内加法', sub10: '10 以内减法', mix10: '10 以内加减法', add20: '20 以内进位加法', sub20: '20 以内退位减法', tens: '整十数加减', mul25: '乘法口诀 2–5', mul69: '乘法口诀 6–9', two: '100 以内加减法' };
     return {
-      subject: '数学', title: names[type], kind: 'math',
-      teach: `这一关做${names[type]}。先算一算，再去找头上写着答案的机器人！`,
+      subject: '数学', title: english ? `英语算术：${names[type]}` : names[type], kind: 'math',
+      teach: english ? `这一关用英语出题：plus 是加，minus 是减，times 是乘。听题，算一算，找答案！` : `这一关做${names[type]}。先算一算，再去找头上写着答案的机器人！`,
       items, recap: `算了 ${items.length} 道${names[type]}题：${items.map(i => i.cue.replace(/<\/?b>/g, '').replace('？', i.label)).join('，')}`,
     };
   }
@@ -284,34 +287,194 @@
     };
   }
 
-  // ---------- the plan: what each stage of each world teaches ----------
-  const MATH7 = ['add5', 'add10', 'sub10', 'mix10', 'add20', 'sub20', 'tens', 'mul25', 'mul69', 'two'];
-  const EN4 = ['colors1', 'animals', 'colors2', 'body', 'nature', 'family', 'school', 'colors3', 'actions', 'feelings'];
-  const EN9 = ['nums1', 'fruits', 'nums2', 'food', 'nums3', 'transport', 'zoo', 'clothes', 'nums4', 'places'];
-  const STAGE6 = [['anto', 'w1'], ['measure', 'w2'], ['word', 'w3'], ['anto', 'w4'], ['measure', 'w5'], ['word', 'w6'], ['anto', 'w7'], ['measure', 'w8'], ['word', 'w9'], ['anto', 'w10']];
-  const STAGE8_ODD = [() => charLesson(NUMERALS, '认数字'), null, radicalLesson, null, () => charLesson(LOOKALIKE, '形近字'), null, synonymLesson, null, redupLesson, null];
+  // ---------- English curriculum (from zero) ----------
+  const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  function enNum(n) { if (n < 20) return ONES[n]; if (n === 100) return 'one hundred'; return TENS[Math.floor(n / 10)] + (n % 10 ? '-' + ONES[n % 10] : ''); }
 
-  function lessonFor(level) {
+  // [word, 中文, picture, type]   type: n noun, c colour, a adjective, v action, f feeling, num number
+  const EW = [
+    { A: [['cat', '猫', '🐱', 'n'], ['dog', '狗', '🐶', 'n'], ['bird', '鸟', '🐦', 'n'], ['fish', '鱼', '🐟', 'n']],
+      B: [['red', '红色', '🟥', 'c'], ['blue', '蓝色', '🟦', 'c'], ['yellow', '黄色', '🟨', 'c'], ['green', '绿色', '🟩', 'c']], letters: 'ABCD' },
+    { A: [['cow', '奶牛', '🐮', 'n'], ['pig', '猪', '🐷', 'n'], ['duck', '鸭子', '🦆', 'n'], ['sheep', '羊', '🐑', 'n']],
+      B: [['apple', '苹果', '🍎', 'n'], ['banana', '香蕉', '🍌', 'n'], ['orange', '橙子', '🍊', 'n'], ['grape', '葡萄', '🍇', 'n']], letters: 'EFGH' },
+    { A: [['one', '一', '1', 'num'], ['two', '二', '2', 'num'], ['three', '三', '3', 'num'], ['four', '四', '4', 'num'], ['five', '五', '5', 'num']],
+      B: [['eye', '眼睛', '👁️', 'n'], ['ear', '耳朵', '👂', 'n'], ['nose', '鼻子', '👃', 'n'], ['mouth', '嘴巴', '👄', 'n']], letters: 'IJKL' },
+    { A: [['six', '六', '6', 'num'], ['seven', '七', '7', 'num'], ['eight', '八', '8', 'num'], ['nine', '九', '9', 'num'], ['ten', '十', '10', 'num']],
+      B: [['mom', '妈妈', '👩', 'n'], ['dad', '爸爸', '👨', 'n'], ['baby', '宝宝', '👶', 'n'], ['grandma', '奶奶', '👵', 'n']], letters: 'MNOP' },
+    { A: [['sun', '太阳', '☀️', 'n'], ['moon', '月亮', '🌙', 'n'], ['star', '星星', '⭐', 'n'], ['tree', '树', '🌳', 'n']],
+      B: [['hat', '帽子', '👒', 'n'], ['shoe', '鞋子', '👟', 'n'], ['sock', '袜子', '🧦', 'n'], ['coat', '外套', '🧥', 'n']], letters: 'QRST' },
+    { A: [['tiger', '老虎', '🐯', 'n'], ['lion', '狮子', '🦁', 'n'], ['monkey', '猴子', '🐵', 'n'], ['panda', '熊猫', '🐼', 'n']],
+      B: [['rice', '米饭', '🍚', 'n'], ['egg', '鸡蛋', '🥚', 'n'], ['milk', '牛奶', '🥛', 'n'], ['cake', '蛋糕', '🍰', 'n']], letters: 'UVWXYZ' },
+    { A: [['run', '跑', '🏃', 'v'], ['jump', '跳', '🤸', 'v'], ['swim', '游泳', '🏊', 'v'], ['sing', '唱歌', '🎤', 'v']],
+      B: [['happy', '开心', '😄', 'f'], ['sad', '难过', '😢', 'f'], ['hot', '热', '🥵', 'f'], ['cold', '冷', '🥶', 'f']], phonics: 'start' },
+    { A: [['book', '书', '📖', 'n'], ['pen', '钢笔', '🖊️', 'n'], ['bag', '书包', '🎒', 'n'], ['ruler', '尺子', '📏', 'n']],
+      B: [['ball', '球', '⚽', 'n'], ['kite', '风筝', '🪁', 'n'], ['car', '小汽车', '🚗', 'n'], ['robot', '机器人', '🤖', 'n']], phonics: 'case' },
+    { A: [['bus', '公交车', '🚌', 'n'], ['bike', '自行车', '🚲', 'n'], ['boat', '小船', '⛵', 'n'], ['plane', '飞机', '✈️', 'n']],
+      B: [['home', '家', '🏠', 'n'], ['school', '学校', '🏫', 'n'], ['park', '公园', '🏞️', 'n'], ['shop', '商店', '🏪', 'n']], phonics: 'spell1' },
+    { A: [['big', '大', '🐘', 'a'], ['small', '小', '🐭', 'a'], ['tall', '高', '🦒', 'a'], ['fast', '快', '🐆', 'a']],
+      B: [['pink', '粉色', '🩷', 'c'], ['purple', '紫色', '🟪', 'c'], ['black', '黑色', '⬛', 'c'], ['white', '白色', '⬜', 'c']], phonics: 'spell2' },
+  ];
+  const COLOR_HEX = { red: '#f44336', blue: '#2196f3', yellow: '#fdd835', green: '#43a047', pink: '#f48fb1', purple: '#8e24aa', black: '#37474f', white: '#fafafa' };
+  const LETTER_WORDS = { A: ['apple', '🍎'], B: ['bird', '🐦'], C: ['cat', '🐱'], D: ['dog', '🐶'], E: ['egg', '🥚'], F: ['fish', '🐟'], G: ['grape', '🍇'], H: ['hat', '👒'], I: ['ice cream', '🍦'], J: ['jump', '🤸'], K: ['kite', '🪁'], L: ['lion', '🦁'], M: ['moon', '🌙'], N: ['nose', '👃'], O: ['orange', '🍊'], P: ['pig', '🐷'], Q: ['queen', '👸'], R: ['robot', '🤖'], S: ['sun', '☀️'], T: ['tree', '🌳'], U: ['umbrella', '☂️'], V: ['van', '🚐'], W: ['water', '💧'], X: ['fox', '🦊'], Y: ['yellow', '🟨'], Z: ['zoo', '🦓'] };
+  const BEE = { name: 'Bee 老师', face: '🐝' };
+
+  const wordObj = ([w, zhv, pic, type]) => ({ w, zh: zhv, pic, type });
+  // Every word the child has been taught before this level.
+  function introducedBefore(level) {
+    const out = [];
+    for (let lv = 1; lv < level; lv++) {
+      const wi = Math.floor((lv - 1) / 10), st = STORY.stageOf(lv);
+      if (st === 1) out.push(...EW[wi].A.map(wordObj));
+      if (st === 4) out.push(...EW[wi].B.map(wordObj));
+    }
+    return out;
+  }
+  function allWordsUpTo(level) { return introducedBefore(level + 1); }
+
+  function article(w) { return /^[aeiou]/.test(w) ? 'an' : 'a'; }
+  function sentence(o) {
+    switch (o.type) {
+      case 'c': return `It is ${o.w}.`;
+      case 'a': return `It is ${o.w}.`;
+      case 'v': return `I can ${o.w}.`;
+      case 'f': return `I am ${o.w}.`;
+      case 'num': return `I have ${o.w}.`;
+      default: return o.w === 'home' ? "Let's go home." : o.w === 'school' ? 'I go to school.' : `I see ${article(o.w)} ${o.w}.`;
+    }
+  }
+  // mode: 'show' (word shown + spoken, find the picture), 'listen' (spoken only), 'read' (picture shown, find the word), 'sentence'
+  function englishItem(o, mode) {
+    const pictureLabel = o.pic;
+    const base = { word: o.w, color: mode !== 'read' && o.type === 'c' ? COLOR_HEX[o.w] : undefined, hit: [en(o.w), zh(o.zh)] };
+    if (mode === 'show') return { ...base, label: pictureLabel, cue: `Find <b>${o.w}</b>`, say: [en(o.w)], name: [en(o.w)] };
+    if (mode === 'listen') return { ...base, label: pictureLabel, cue: '听一听，找一找 <b>?</b>', say: [en(o.w)], name: [en(o.w)] };
+    if (mode === 'read') return { ...base, label: o.w, cue: `${o.pic} <b>英语怎么说？</b>`, say: [zh(`${o.zh}，英语怎么说？`)], name: [en(o.w)] };
+    const sent = sentence(o);
+    return { ...base, label: pictureLabel, cue: sent.replace(o.w, `<b>${o.w}</b>`), say: [en(sent)], hit: [en(sent), zh(o.zh)], name: [en(o.w)] };
+  }
+  function cardsFor(words) { return words.map(o => ({ pic: o.pic, word: o.w, zh: o.zh, color: o.type === 'c' ? COLOR_HEX[o.w] : null })); }
+
+  function newWordsLesson(words, batch) {
+    return {
+      subject: '英语', title: `新单词 New words ${batch}`, kind: 'en', cards: cardsFor(words),
+      teacher: BEE,
+      teach: `今天学 ${words.length} 个新单词：${words.map(o => o.w).join('、')}。先看卡片听一听，再去找！`,
+      items: words.map(o => englishItem(o, 'show')),
+      recap: `新单词：${words.map(o => `${o.w}（${o.zh}）`).join('，')}`,
+    };
+  }
+  const MODE_NAMES = { show: '看词找图', listen: '听音找图', read: '看图认词', sentence: '听句子' };
+  function practiceLesson(words, mode, title) {
+    return {
+      subject: '英语', title: `${title} · ${MODE_NAMES[mode]}`, kind: 'en', teacher: BEE,
+      teach: {
+        listen: '这一关只听不看：仔细听 Bee 老师读的单词，找对的图。没听清就点题目再听一遍！',
+        read: '这一关看图认单词：看到图，找写着对应英文单词的机器人。',
+        sentence: '这一关听句子：听懂句子里的单词，找对的图。',
+        show: '看单词、听发音，找对的图。',
+      }[mode] + ` 有：${words.map(o => o.w).join('、')}。`,
+      items: words.map(o => englishItem(o, mode)),
+      recap: `练习了：${words.map(o => `${o.w}（${o.zh}）`).join('，')}`,
+    };
+  }
+  function lettersLesson(letters) {
+    const cards = [...letters].map(L => ({ pic: LETTER_WORDS[L][1], word: `${L} ${L.toLowerCase()}`, zh: `${L} is for ${LETTER_WORDS[L][0]}`, letter: L }));
+    return {
+      subject: '英语', title: `字母 ${letters[0]}–${letters[letters.length - 1]}`, kind: 'letter', cards, teacher: BEE,
+      teach: `认识字母：${[...letters].map(L => L + L.toLowerCase()).join('、')}。听字母，找字母！`,
+      items: [...letters].map(L => ({ label: `${L}${L.toLowerCase()}`, cue: `Find letter <b>${L}</b>`, say: [en(L)], hit: [en(L), en(`${L} is for ${LETTER_WORDS[L][0]}`)], name: [en(L)] })),
+      recap: `字母：${[...letters].map(L => L + L.toLowerCase()).join(' ')}`,
+    };
+  }
+  function phonicsLesson(kind) {
+    if (kind === 'start') {
+      const set = [['B', 'bird', '🐦'], ['C', 'cat', '🐱'], ['D', 'dog', '🐶'], ['F', 'fish', '🐟'], ['P', 'pig', '🐷']];
+      return {
+        subject: '英语', title: '首字母 Sounds', kind: 'letter', teacher: BEE,
+        teach: 'bird 是 B 开头，cat 是 C 开头。听字母，找用这个字母开头的图！',
+        items: set.map(([L, w, pic]) => ({ label: pic, word: w, cue: `Which starts with <b>${L} ${L.toLowerCase()}</b>?`, say: [en(`Which word starts with ${L}?`)], hit: [en(`${w}, ${L}`)], name: [en(w)] })),
+        recap: set.map(([L, w]) => `${L} — ${w}`).join('，'),
+      };
+    }
+    if (kind === 'case') {
+      const set = ['B', 'D', 'P', 'Q', 'G'];
+      return {
+        subject: '英语', title: '大写小写 Aa Bb', kind: 'letter', teacher: BEE,
+        teach: '每个字母都有大写和小写。b、d、p、q 长得很像，要看仔细！',
+        items: set.map(L => ({ label: L.toLowerCase(), cue: `Find small <b>${L}</b>`, say: [en(`Find small ${L}`)], hit: [en(`${L}, small ${L}`)], name: [en(L)] })),
+        recap: set.map(L => `${L} ${L.toLowerCase()}`).join('，'),
+      };
+    }
+    const set = kind === 'spell1'
+      ? [['cat', 'c_t', 'a', '🐱'], ['dog', 'd_g', 'o', '🐶'], ['pig', 'p_g', 'i', '🐷'], ['sun', 's_n', 'u', '☀️'], ['red', 'r_d', 'e', '🟥']]
+      : [['cat', '_at', 'c', '🐱'], ['dog', '_og', 'd', '🐶'], ['fish', '_ish', 'f', '🐟'], ['sun', '_un', 's', '☀️'], ['pig', '_ig', 'p', '🐷'], ['hat', '_at', 'h', '👒']];
+    return {
+      subject: '英语', title: '拼单词 Spelling', kind: 'letter', teacher: BEE,
+      teach: '单词里少了一个字母！看图读一读，找缺的那个字母。',
+      items: set.map(([w, gap, letter, pic]) => ({ label: letter, word: w, cue: `${pic} <b>${gap.replace('_', '＿')}</b>`, say: [en(`${w}. ${w}.`)], hit: [en(`${w}. ${[...w].join(' ')}`)], name: [en(letter)] })),
+      recap: set.map(([w]) => w).join('，'),
+    };
+  }
+
+  // Review words the child got wrong before (from saved stats), otherwise a seeded pick of older words.
+  function reviewPick(level, pool, n, stats, exclude) {
+    const R = rng(level * 7717 + 3);
+    const used = new Set(exclude.map(o => o.pic).concat(exclude.map(o => o.w)));
+    const cand = pool.filter(o => !used.has(o.pic) && !used.has(o.w));
+    const score = (o) => { const s = stats && stats[o.w]; return s ? s.w * 2 - s.r : 0; };
+    const weak = cand.filter(o => score(o) > 0).sort((a, b) => score(b) - score(a));
+    const rest = cand.filter(o => score(o) <= 0);
+    shuffle(rest, R);
+    return [...weak, ...rest].slice(0, n);
+  }
+  function shuffle(arr, R) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+
+  // ---------- the plan: English first ----------
+  // Each world: 1 new words A · 2 practise A · 3 认字 · 4 new words B · 5 letters/phonics
+  //             6 math · 7 practise A+B (+review) · 8 古诗 · 9 math in English · 10 boss: big review
+  const MATH6 = ['add5', 'add10', 'sub10', 'mix10', 'add20', 'sub20', 'tens', 'mul25', 'mul69', 'two'];
+  const MATH9 = [null, null, 'count1', 'count2', 'add10', 'sub10', 'mix10', 'add20', 'sub20', 'mul25'];
+  const practiseMode = (w) => (w < 2 ? 'listen' : w < 6 ? 'read' : 'sentence');
+
+  function lessonFor(level, stats) {
     const w = Math.floor((level - 1) / STORY.LEVELS_PER_WORLD);
-    const key = 'w' + (w + 1);
     const stage = STORY.stageOf(level);
+    const E = EW[w], A = E.A.map(wordObj), B = E.B.map(wordObj);
+    const R = rng(level * 131 + 9);
     let L;
     switch (stage) {
-      case 1: L = charLesson(CHARS[key], '认字'); break;
-      case 2: L = countLesson(level); break;
-      case 3: L = PINYIN[key] ? pinyinLesson(PINYIN[key]) : charLesson(CHARS2[key], '认字'); break;
-      case 4: L = englishLesson(EN4[w]); break;
-      case 5: L = poemLesson(POEMS[w], 0); break;
-      case 6: { const [t, k] = STAGE6[w]; L = t === 'anto' ? antonymLesson(ANTONYMS[k]) : t === 'measure' ? measureLesson(MEASURES[k]) : wordLesson(WORDS[k]); break; }
-      case 7: L = mathLesson(level, MATH7[w], Math.min(3 + Math.floor(w / 2), 6)); break;
-      case 8: L = KNOW[key] ? knowLesson(KNOW[key]) : STAGE8_ODD[w](); break;
-      case 9: L = englishLesson(EN9[w]); break;
-      default: L = poemLesson(POEMS[w], 1);
+      case 1: L = newWordsLesson(A, 1); break;
+      case 2: L = practiceLesson(shuffle(A.slice(), R), w < 2 ? 'listen' : 'read', '练一练'); break;
+      case 3: L = charLesson(CHARS['w' + (w + 1)], '认字'); break;
+      case 4: L = newWordsLesson(B, 2); break;
+      case 5: L = E.letters ? lettersLesson(E.letters) : phonicsLesson(E.phonics); break;
+      case 6: L = mathLesson(level, MATH6[w], Math.min(3 + Math.floor(w / 2), 6)); break;
+      case 7: {
+        const mine = [...shuffle(A.slice(), R).slice(0, 2), ...shuffle(B.slice(), R).slice(0, 2)];
+        const old = reviewPick(level, introducedBefore(level).filter(o => !E.A.some(a => a[0] === o.w) && !E.B.some(b => b[0] === o.w)), 2, stats, mine);
+        L = practiceLesson([...mine, ...old], practiseMode(w), '复习');
+        break;
+      }
+      case 8: L = poemLesson(POEMS[w], 0); break;
+      case 9: {
+        const t = MATH9[w];
+        if (!t) L = w === 0 ? countLesson(level, false) : mathLesson(level, 'add5', 3);
+        else if (t === 'count1') L = countLesson(level, true);
+        else if (t === 'count2') { L = countLesson(level, true); }
+        else L = mathLesson(level, t, Math.min(4 + Math.floor(w / 3), 6), true);
+        break;
+      }
+      default: {
+        const mine = shuffle([...A, ...B], R).slice(0, 4);
+        const old = reviewPick(level, introducedBefore(level).filter(o => ![...E.A, ...E.B].some(x => x[0] === o.w)), 2, stats, mine);
+        L = practiceLesson([...mine, ...old], practiseMode(w), '大复习');
+      }
     }
     L.ordered = !!L.ordered;
     return L;
   }
 
-  const LESSONS = { lessonFor, POEMS, COLORS };
+  const LESSONS = { lessonFor, POEMS, COLORS, allWordsUpTo, introducedBefore, enNum, BEE };
   if (typeof module !== 'undefined') module.exports = LESSONS; else root.LESSONS = LESSONS;
 })(typeof window !== 'undefined' ? window : globalThis);

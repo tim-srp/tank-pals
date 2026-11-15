@@ -40,9 +40,9 @@ test('every level has a lesson the child can answer', () => {
       }
     }
     if (!les.ordered) {
-      const labels = c.items.map(i => i.label || i.color), cues = c.items.map(i => i.cue);
-      assert.equal(new Set(labels).size, labels.length, `level ${lv} answers must be distinct`);
-      assert.equal(new Set(cues).size, cues.length, `level ${lv} questions must be distinct`);
+      const labels = c.items.map(i => i.label || i.color), says = c.items.map(i => JSON.stringify(i.say) + i.cue);
+      assert.equal(new Set(labels).size, labels.length, `level ${lv} answers must be distinct: ${labels}`);
+      assert.equal(new Set(says).size, says.length, `level ${lv} questions must be distinct`);
     } else {
       const idx = c.items.map(i => i.idx).sort((a, b) => a - b);
       assert.deepEqual(idx, idx.map((_, i) => i), `level ${lv} order`);
@@ -55,25 +55,41 @@ test('every level has a lesson the child can answer', () => {
       assert.ok(ans >= 0 && ans <= 100);
     }
     if (les.kind === 'poem') assert.equal(c.items.map(i => i.label).join(''), les.line);
-    if (les.subject === '英语') assert.ok(c.items.every(i => i.say[0][1] === 'en'));
+    if (les.subject === '英语') assert.ok(c.items.every(i => i.hit.some(h => h[1] === 'en')), `level ${lv} English is spoken`);
+    if (les.cards) assert.ok(les.cards.length === c.items.length || les.kind === 'letter', `level ${lv} cards`);
   }
-  assert.ok(subjects['语文'] >= 50, `语文 ${subjects['语文']}`);
-  assert.ok(subjects['数学'] >= 15 && subjects['英语'] >= 15 && subjects['常识'] >= 4, JSON.stringify(subjects));
+  assert.ok(subjects['英语'] >= 55, JSON.stringify(subjects));
+  assert.ok(subjects['语文'] >= 15 && subjects['数学'] >= 15, JSON.stringify(subjects));
   assert.equal(L.levelConfig(55).order, 'desc');
 });
 
-test('lesson difficulty follows the grades', () => {
-  assert.match(L.levelConfig(7).lesson.title, /5 以内加法/);
-  assert.match(L.levelConfig(87).lesson.title, /乘法口诀 6–9/);
-  assert.equal(L.levelConfig(5).lesson.title, '古诗《咏鹅》');
-  assert.equal(L.levelConfig(40).lesson.line, '疑是地上霜');
-  assert.equal(L.levelConfig(4).lesson.subject, '英语');
+test('English starts from zero and grows', () => {
+  const l1 = L.levelConfig(1).lesson;
+  assert.equal(l1.subject, '英语'); assert.ok(l1.cards.length === 4);
+  assert.deepEqual(l1.cards.map(c => c.word), ['cat', 'dog', 'bird', 'fish']);
+  assert.match(L.levelConfig(2).lesson.title, /听音找图/);
+  assert.match(L.levelConfig(22).lesson.title, /看图认词/);
+  assert.match(L.levelConfig(67).lesson.title, /听句子/);
+  assert.match(L.levelConfig(5).lesson.title, /字母 A–D/);
+  assert.match(L.levelConfig(85).lesson.title, /拼单词/);
+  assert.match(L.levelConfig(59).lesson.title, /英语算术/);
+  assert.equal(L.levelConfig(8).lesson.title, '古诗《咏鹅》');
+  const LS = require('../src/lessons.js');
+  assert.equal(LS.introducedBefore(101).length, 82);
+  assert.equal(LS.enNum(47), 'forty-seven');
+});
+
+test('review brings back words the child missed', () => {
+  const plain = L.levelConfig(47).items.map(i => i.word);
+  const missed = L.levelConfig(47, { cat: { r: 0, w: 3 }, pig: { r: 1, w: 4 } }).items.map(i => i.word);
+  assert.ok(missed.includes('cat') && missed.includes('pig'), missed.join());
+  assert.notDeepEqual(plain, missed);
 });
 
 test('difficulty grows gently', () => {
   assert.ok(L.levelConfig(100).robotSpeed > L.levelConfig(1).robotSpeed);
   assert.ok(L.levelConfig(100).fireEvery < L.levelConfig(1).fireEvery);
-  assert.ok(L.levelConfig(1).items.length <= 3);
+  assert.ok(L.levelConfig(1).items.length <= 4);
 });
 
 test('every level has story before and after', () => {

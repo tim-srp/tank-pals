@@ -90,12 +90,12 @@
     return arr;
   }
 
-  function levelConfig(level) {
+  function levelConfig(level, stats) {
     const t = (level - 1) / (STORY.LEVEL_COUNT - 1);
     const stage = STORY.stageOf(level);
     const world = STORY.worldOf(level);
     const boss = STORY.isBossLevel(level);
-    const lesson = LESSONS.lessonFor(level);
+    const lesson = LESSONS.lessonFor(level, stats);
     const R = rng(level * 4243 + 7);
     const items = lesson.items.map((it, i) => ({ ...it, idx: it.idx ?? i }));
     // Spawn order: poems come out in order, everything else is mixed so kids have to look.

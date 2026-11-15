@@ -10,12 +10,12 @@
 
   // ---------- Saved progress & parent settings ----------
   const SAVE_KEY = 'tankpals.v1';
-  const DEFAULTS = { unlocked: 1, stars: {}, settings: { dailyLevels: 0, dailyMinutes: 0, voice: true, sound: true, music: true }, day: { date: today(), levels: 0, seconds: 0 } };
+  const DEFAULTS = { unlocked: 1, stars: {}, settings: { dailyLevels: 0, dailyMinutes: 0, voice: true, sound: true, music: true }, words: {}, day: { date: today(), levels: 0, seconds: 0 } };
   let save = load();
   function load() {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-      if (s && typeof s === 'object') return { ...DEFAULTS, ...s, settings: { ...DEFAULTS.settings, ...s.settings }, day: { ...DEFAULTS.day, ...s.day } };
+      if (s && typeof s === 'object') return { ...DEFAULTS, ...s, words: s.words || {}, settings: { ...DEFAULTS.settings, ...s.settings }, day: { ...DEFAULTS.day, ...s.day } };
     } catch (e) { /* storage unavailable */ }
     return JSON.parse(JSON.stringify(DEFAULTS));
   }
@@ -174,7 +174,7 @@
   let mode = 'menu'; // menu | story | play | pause | win | oops | rest | ...
 
   function newLevel(level) {
-    const cfg = levelConfig(level);
+    const cfg = levelConfig(level, save.words);
     const grid = cfg.map.map(r => r.split(''));
     G = {
       level, cfg, grid,
@@ -536,6 +536,10 @@
     if (!right && target && G.cfg.ordered && target.item.label === r.item.label) {
       [target.item.idx, r.item.idx] = [r.item.idx, target.item.idx]; right = true;
     }
+    if (target && target.item.word) {
+      const st = save.words[target.item.word] || (save.words[target.item.word] = { r: 0, w: 0 });
+      if (right) st.r++; else st.w++;
+    }
     sleepRobot(r);
     G.numberedHits++;
     G.doneIdx.add(r.item.idx);
@@ -794,11 +798,11 @@
   function toast(text, secs = 3) { $('toast').textContent = text; $('toast').classList.remove('hidden'); toastTimer = secs; }
 
   // ---------- Screens & flow ----------
-  const SCREENS = ['menu', 'select', 'story', 'pause', 'win', 'oops', 'rest', 'finale', 'howto', 'gate', 'parent'];
+  const SCREENS = ['menu', 'select', 'story', 'pause', 'win', 'oops', 'rest', 'finale', 'howto', 'gate', 'parent', 'words'];
   function show(name) {
     for (const s of SCREENS) $('scr-' + s).classList.toggle('hidden', s !== name);
     const playing = name === null;
-    $('hud').classList.toggle('hidden', !G || name === 'menu' || name === 'select' || name === 'howto');
+    $('hud').classList.toggle('hidden', !G || name === 'menu' || name === 'select' || name === 'howto' || name === 'words');
     $('controls').classList.toggle('hidden', !playing);
     if (!playing) releaseAll();
   }
@@ -848,7 +852,17 @@
     show('story'); renderStory();
   }
   function renderStory() {
-    const [who, text] = storyLines[storyIdx];
+    const [who, text, card] = storyLines[storyIdx];
+    $('scr-story').classList.toggle('is-card', !!card);
+    $('story-dots').textContent = storyLines.map((_, i) => i === storyIdx ? '●' : '○').join('');
+    $('story-next').textContent = storyIdx === storyLines.length - 1 ? '出发！' : '继续 ▶';
+    if (card) {
+      $('story-face').innerHTML = card.color ? `<span class="swatch" style="background:${card.color}"></span>` : card.pic;
+      $('story-name').textContent = card.letter ? 'New letter 新字母 · Bee 老师' : 'New word 新单词 · Bee 老师';
+      $('story-text').innerHTML = `<span class="card-word">${card.word}</span><span class="card-zh">${card.zh}</span><span class="card-tap">🔊 点图片再听一遍</span>`;
+      sayCard(card);
+      return;
+    }
     $('story-face').textContent = who.face;
     $('story-name').textContent = who.name;
     $('story-text').textContent = text;
@@ -856,6 +870,15 @@
     $('story-next').textContent = storyIdx === storyLines.length - 1 ? '出发！' : '继续 ▶';
     speak(text);
   }
+  function sayCard(card) {
+    if (card.letter) { speak(card.letter, true, 'en'); speak(card.letter, false, 'en'); speak(card.zh, false, 'en'); return; }
+    speak(card.word, true, 'en'); speak(card.word, false, 'en'); speak(card.zh, false, 'zh');
+  }
+  $('story-face').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = storyLines[storyIdx];
+    if (entry && entry[2]) sayCard(entry[2]); else if (entry) speak(entry[1]);
+  });
   function storyAdvance(skip) {
     if (!skip && storyIdx < storyLines.length - 1) { storyIdx++; renderStory(); return; }
     hush(); const d = storyDone; storyDone = null; if (d) d();
@@ -873,7 +896,9 @@
     const lines = S.storyBefore(level).slice();
     const cfg = G.cfg;
     if (cfg.boss) lines.push([S.GRANDPA, `打败${cfg.bossInfo.name}要碰它 ${cfg.bossInfo.hp} 下。它的小跟班身上也有题目哦。`]);
-    lines.push([{ name: `扳手爷爷 · ${cfg.lesson.subject}`, face: { '语文': '📝', '数学': '🔢', '英语': '🔤', '常识': '💡' }[cfg.lesson.subject] }, cfg.lesson.teach]);
+    const L = cfg.lesson;
+    lines.push([L.teacher || { name: `扳手爷爷 · ${L.subject}`, face: { '语文': '📝', '数学': '🔢', '英语': '🔤', '常识': '💡' }[L.subject] }, L.teach]);
+    if (L.cards) for (const c of L.cards) lines.push([L.teacher, '', c]);
     return lines;
   }
   function play() {
@@ -903,7 +928,7 @@
   }
   function afterWin() {
     const L = G.level;
-    const recap = [[{ name: '扳手爷爷', face: '📚' }, G.cfg.lesson.recap]];
+    const recap = [[G.cfg.lesson.teacher || { name: '扳手爷爷', face: '📚' }, G.cfg.lesson.recap]];
     showStory(L, [...recap, ...S.storyAfter(L, G.asleep)], () => {
       if (L >= S.LEVEL_COUNT) return goFinale();
       const lim = limitReached();
@@ -925,6 +950,31 @@
     const total = Object.values(save.stars).reduce((a, b) => a + b, 0);
     $('finale-detail').textContent = `小蓝帮 10 个世界的机器人都睡了好觉，还和乱码云成了朋友。一共拿到 ${total} 颗过关星！`;
     speak('全部通关！你是最棒的小坦克！');
+  }
+
+  // Word book: every English word taught so far, tap to hear it.
+  function wordState(w) {
+    const st = save.words[w];
+    if (!st) return 'new';
+    if (st.r >= 3 && st.r >= st.w * 2) return 'good';
+    return st.w > st.r ? 'weak' : 'ok';
+  }
+  function openWords() {
+    mode = 'words'; G = null; hush(); show('words');
+    const words = window.LESSONS.introducedBefore(save.unlocked);
+    const grid = $('word-grid'); grid.innerHTML = '';
+    $('words-empty').classList.toggle('hidden', words.length > 0);
+    const good = words.filter(o => wordState(o.w) === 'good').length;
+    $('words-summary').textContent = words.length ? `学过 ${words.length} 个单词，掌握了 ${good} 个 ⭐` : '';
+    for (const o of words) {
+      const b = document.createElement('button');
+      const state = wordState(o.w);
+      b.className = 'word ' + state;
+      const pic = o.type === 'c' ? `<span class="swatch small" style="background:${{ red: '#f44336', blue: '#2196f3', yellow: '#fdd835', green: '#43a047', pink: '#f48fb1', purple: '#8e24aa', black: '#37474f', white: '#fafafa' }[o.w]}"></span>` : o.pic;
+      b.innerHTML = `<span class="pic">${pic}</span><b>${o.w}</b><small>${o.zh}</small><i>${state === 'good' ? '⭐' : state === 'weak' ? '🔁' : ''}</i>`;
+      b.onclick = () => { speak(o.w, true, 'en'); speak(o.zh, false, 'zh'); };
+      grid.appendChild(b);
+    }
   }
 
   // Parent gate
@@ -958,7 +1008,9 @@
     seg('set-voice', [[true, '开'], [false, '关']], st.voice, v => st.voice = v);
     seg('set-sound', [[true, '开'], [false, '关']], st.sound, v => st.sound = v);
     seg('set-music', [[true, '开'], [false, '关']], st.music, v => { st.music = v; if (!v) stopMusic(); });
-    $('parent-today').textContent = `今天已玩 ${save.day.levels} 关、${Math.floor(save.day.seconds / 60)} 分钟。已解锁到第 ${save.unlocked} 关。`;
+    const words = window.LESSONS.introducedBefore(save.unlocked);
+    const good = words.filter(o => wordState(o.w) === 'good'), weak = words.filter(o => wordState(o.w) === 'weak');
+    $('parent-today').innerHTML = `今天已玩 ${save.day.levels} 关、${Math.floor(save.day.seconds / 60)} 分钟。已解锁到第 ${save.unlocked} 关。<br>英语单词：学过 ${words.length} 个，掌握 ${good.length} 个` + (weak.length ? `，需要多练：${weak.map(o => o.w).join('、')}` : '') + '。';
   }
 
   // Button wiring
@@ -966,6 +1018,7 @@
   on('btn-fullscreen', () => { enterFullscreen(); $('btn-fullscreen').classList.add('hidden'); });
   on('btn-continue', () => enterFullscreen() || startLevel(Math.min(save.unlocked, S.LEVEL_COUNT)));
   on('btn-select', goSelect);
+  on('btn-words', openWords);
   on('btn-howto', () => { mode = 'howto'; show('howto'); });
   on('btn-parent', () => openGate(openParent));
   on('btn-rest-parent', () => openGate(openParent));
@@ -990,7 +1043,7 @@
   on('parent-back', goMenu);
   on('btn-reset-today', () => { save.day = { date: today(), levels: 0, seconds: 0 }; persist(); renderParent(); });
   on('btn-unlock-all', () => { save.unlocked = S.LEVEL_COUNT; persist(); renderParent(); });
-  on('btn-reset-all', () => { if (confirm('确定清空全部进度吗？')) { save.unlocked = 1; save.stars = {}; persist(); renderParent(); } });
+  on('btn-reset-all', () => { if (confirm('确定清空全部进度吗？')) { save.unlocked = 1; save.stars = {}; save.words = {}; persist(); renderParent(); } });
   document.querySelectorAll('[data-go="menu"]').forEach(b => b.addEventListener('click', goMenu));
   document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); persist(); stopMusic(); } else if (mode === 'menu') startMusic(null); });
 

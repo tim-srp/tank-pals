@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
 const S = require('../src/story.js');
 const L = require('../src/levels.js');
-const rows = ['# 小蓝坦克 · 课程表', '', '由 `node scripts/curriculum.mjs` 从游戏数据生成。世界 1–5 大致对应一年级，6–10 对应二年级。', ''];
+const rows = ['# 小蓝坦克 · 课程表', '', '由 `node scripts/curriculum.mjs` 从游戏数据生成。英语从零开始：世界 1–2 听音认图，3–6 看图认词，7–10 听句子；字母 → 首字母 → 大小写 → 拼单词。语文、数学为辅，后期数学用英语出题。', ''];
 const count = {};
 S.WORLDS.forEach((w, wi) => {
   rows.push(`## ${w.emoji} 世界 ${wi + 1} · ${w.name}`, '', '| 关 | 科目 | 内容 | 学到 |', '|---|---|---|---|');
