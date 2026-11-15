@@ -1,6 +1,6 @@
 # 小蓝坦克
 
-A gentle tank game for kids, made for iPad. It installs from Safari: Share → 添加到主屏幕. No App Store, signing or account needed, and it works offline after the first visit.
+A gentle tank game for kids, made for iPad and iPhone (landscape). It installs from Safari: Share → 添加到主屏幕. No App Store, signing or account needed, and it works offline after the first visit. On iPhone, Safari cannot hide its bars for a web page, so the home-screen app is the way to play full screen; the menu shows a tip for this.
 
 - 100 levels in 10 worlds. Each world has its own story, number rule, fun fact and a big robot at level 10.
 - Story: 乱码云 scrambled the robots' sleep chips. 小蓝 uses 晚安能量球 to help them nap, and they wake up as friends. In the end 乱码云 becomes a friend too.
@@ -16,7 +16,7 @@ A gentle tank game for kids, made for iPad. It installs from Safari: Share → �
 npm install
 npx playwright install chromium webkit
 npm run serve        # http://localhost:8765/
-npm test             # unit tests + end-to-end tests (Chromium multi-touch + WebKit) at iPad size
+npm test             # unit tests + end-to-end tests (Chromium multi-touch + WebKit) at iPad size and three iPhone landscape sizes
 npm run icons        # regenerate icons/
 ```
 

@@ -42,9 +42,13 @@
   <!-- Screens -->
   <section id="scr-menu" class="screen">
     <div class="menu-card">
+      <div class="menu-brand">
       <div class="logo">🚙💤🤖</div>
       <h1>小蓝坦克</h1>
       <p class="sub">帮迷糊机器人睡个好觉 · 跟 Bee 老师学英语</p>
+      <p id="install-tip" class="install-tip hidden">想要全屏玩？点 Safari 的 <b>分享</b> 按钮（在「···」里）→ <b>添加到主屏幕</b>，以后从桌面图标打开。</p>
+      </div>
+      <div class="menu-actions">
       <button id="btn-continue" class="big primary">开始冒险</button>
       <button id="btn-select" class="big">选关</button>
       <button id="btn-words" class="big">📒 单词本</button>
@@ -52,6 +56,7 @@
         <button id="btn-parent" class="small">⚙︎ 家长设置</button>
         <button id="btn-fullscreen" class="small hidden">⛶ 全屏</button>
         <button id="btn-howto" class="small">怎么玩</button>
+      </div>
       </div>
     </div>
   </section>
@@ -210,13 +215,13 @@
         <button id="btn-unlock-all" class="small">解锁全部 100 关</button>
         <button id="btn-reset-all" class="small danger">清空全部进度</button>
       </div>
-      <p class="muted">时间到了会让孩子打完当前这一关再休息。设置只保存在这台 iPad 上。</p>
+      <p class="muted">时间到了会让孩子打完当前这一关再休息。设置只保存在这台设备上。</p>
     </div>
   </section>
 
   <div id="rotate">
     <div>📱↻</div>
-    <p>请把 iPad 横过来玩</p>
+    <p id="rotate-text">请把 iPad 横过来玩</p>
   </div>
 </div>
 <script src="src/story.js"></script>

@@ -1,5 +1,5 @@
 // Offline cache: after the first visit the game works without a network.
-const VERSION = 'tankpals-v4';
+const VERSION = 'tankpals-v5';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'src/style.css', 'src/story.js', 'src/lessons.js', 'src/levels.js', 'src/game.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {

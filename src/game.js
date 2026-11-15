@@ -122,6 +122,14 @@
     try { const r = (el.requestFullscreen || el.webkitRequestFullscreen).call(el); if (r && r.catch) r.catch(() => {}); } catch (e) { /* not allowed */ }
   }
 
+  // iPhone Safari has no page full screen: the home-screen app is the way to play without browser bars.
+  const isPhone = /iPhone|iPod/.test(navigator.userAgent) || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600);
+  if (isPhone) {
+    document.documentElement.classList.add('phone');
+    $('rotate-text').textContent = '请把手机横过来玩（如果转不过来，先在控制中心关掉“竖屏锁定”）';
+  }
+  const showInstallTip = isPhone && !standalone;
+
   // iOS needs audio to start from a user gesture.
   window.addEventListener('pointerdown', () => { if (save.settings.sound) audio(); }, { once: true });
 
@@ -156,16 +164,24 @@
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth; H = window.innerHeight;
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
-    const hud = 56 + safeTop();
-    tile = Math.min(W / COLS, (H - hud - 6) / ROWS);
-    ox = (W - tile * COLS) / 2;
+    safe = safeInsets();
+    hudH = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hud-h')) || 56) + safe.t;
+    const hud = hudH;
+    tile = Math.min((W - safe.l - safe.r) / COLS, (H - hud - 6) / ROWS);
+    ox = safe.l + (W - safe.l - safe.r - tile * COLS) / 2;
     oy = hud + (H - hud - tile * ROWS) / 2;
     placeIdleJoystick();
   }
+  let safe = { t: 0, r: 0, b: 0, l: 0 }, hudH = 56;
   const safeProbe = document.createElement('div');
-  safeProbe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;padding-top:env(safe-area-inset-top)';
+  safeProbe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
   document.body.appendChild(safeProbe);
-  function safeTop() { return parseFloat(getComputedStyle(safeProbe).paddingTop) || 0; }
+  function safeInsets() {
+    const cs = getComputedStyle(safeProbe), n = (v) => parseFloat(v) || 0;
+    return { t: n(cs.paddingTop), r: n(cs.paddingRight), b: n(cs.paddingBottom), l: n(cs.paddingLeft) };
+  }
+  // iPhone rotation changes the safe areas after the resize event, so measure again a moment later.
+  window.addEventListener('orientationchange', () => setTimeout(resize, 300));
   window.addEventListener('resize', resize);
 
   // ---------- Game state ----------
@@ -307,12 +323,14 @@
   const input = { jx: 0, jy: 0, fire: false };
   const keys = new Set();
   const joyEl = $('joy'), knobEl = $('joy-knob'), fireEl = $('fire');
-  const JOY_R = 70;
+  let JOY_R = 70;
   let joyId = null, joyCx = 0, joyCy = 0;
   const firePointers = new Set();
   function placeIdleJoystick() {
     if (joyId != null) return;
-    joyCx = Math.max(130, W * 0.11); joyCy = H - 140;
+    const size = parseFloat(getComputedStyle(joyEl).width) || 170;
+    JOY_R = size * 0.41;
+    joyCx = Math.max(safe.l + size * 0.75, W * 0.11); joyCy = H - Math.max(safe.b, 10) - size * 0.8;
     joyEl.style.left = joyCx + 'px'; joyEl.style.top = joyCy + 'px';
     knobEl.style.transform = 'translate(0,0)';
   }
@@ -330,7 +348,7 @@
     e.preventDefault();
     if (e.clientX < W * 0.5) {
       if (joyId != null) return;
-      joyId = e.pointerId; joyCx = e.clientX; joyCy = Math.max(e.clientY, 100);
+      joyId = e.pointerId; joyCx = e.clientX; joyCy = Math.max(e.clientY, hudH + JOY_R * 0.6);
       joyEl.style.left = joyCx + 'px'; joyEl.style.top = joyCy + 'px';
       joyEl.classList.add('active'); setKnob(e.clientX, e.clientY);
     } else {
@@ -349,7 +367,7 @@
     joyEl.classList.remove('active'); fireEl.classList.remove('active'); placeIdleJoystick();
   }
   // Stop iPad Safari from scrolling, zooming or showing the magnifier.
-  document.addEventListener('touchmove', (e) => { if (!e.target.closest('.panel, .story-card')) e.preventDefault(); }, { passive: false });
+  document.addEventListener('touchmove', (e) => { if (!e.target.closest('.panel, .story-card, .menu-card')) e.preventDefault(); }, { passive: false });
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault());
   document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -806,7 +824,7 @@
     $('controls').classList.toggle('hidden', !playing);
     if (!playing) releaseAll();
   }
-  function goMenu() { mode = 'menu'; G = null; hush(); show('menu'); startMusic(null); $('btn-fullscreen').classList.toggle('hidden', !fsEnabled || isFullscreen()); $('btn-continue').textContent = save.unlocked > 1 ? `继续冒险 · 第 ${Math.min(save.unlocked, S.LEVEL_COUNT)} 关` : '开始冒险'; }
+  function goMenu() { mode = 'menu'; G = null; hush(); show('menu'); startMusic(null); $('btn-fullscreen').classList.toggle('hidden', !fsEnabled || isFullscreen()); $('install-tip').classList.toggle('hidden', !showInstallTip); $('btn-continue').textContent = save.unlocked > 1 ? `继续冒险 · 第 ${Math.min(save.unlocked, S.LEVEL_COUNT)} 关` : '开始冒险'; }
 
   let selectWorld = 0;
   function goSelect() {

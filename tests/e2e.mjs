@@ -1,6 +1,6 @@
 // End-to-end tests in real browsers at iPad size, with real multi-touch input.
 // Chromium drives the touch flows (CDP multi-touch); WebKit (Safari's engine) checks rendering and the same flows.
-import { chromium, webkit } from 'playwright';
+import { chromium, webkit, devices } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { serve } from '../scripts/serve.mjs';
@@ -14,9 +14,9 @@ let passed = 0;
 async function step(name, fn) { process.stdout.write(`  • ${name} … `); await fn(); passed++; console.log('ok'); }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-async function open(browserType, label) {
+async function open(browserType, label, device = IPAD) {
   const browser = await browserType.launch();
-  const ctx = await browser.newContext({ ...IPAD, ...(browserType === chromium ? {} : {}) });
+  const ctx = await browser.newContext(device);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -387,6 +387,112 @@ console.log('WebKit (Safari engine):');
     await page.evaluate(() => window.__tank.startLevel(41));
     await page.waitForFunction(() => window.__tank.mode === 'story');
     await page.screenshot({ path: `${OUT}/w3-story.png` });
+  });
+  await step('no JavaScript errors', async () => { assert.deepEqual(errors, []); });
+  await browser.close();
+}
+
+// ---------------- iPhone in landscape (WebKit) ----------------
+// Sizes: Safari tab with bars (iPhone 14), home-screen app (iPhone 14, full 844×390), and the small iPhone SE.
+const IPHONE_UA = devices['iPhone 14'].userAgent;
+const PHONES = [
+  { name: 'iPhone 14 Safari tab', tag: 'p14s', viewport: { width: 750, height: 340 } },
+  { name: 'iPhone 14 home screen', tag: 'p14', viewport: { width: 844, height: 390 } },
+  { name: 'iPhone SE', tag: 'pse', viewport: { width: 667, height: 375 } },
+];
+// Every card must sit fully on screen without needing to scroll.
+async function fitsOnScreen(page, sel) {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel), r = el.getBoundingClientRect();
+    return { ok: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 0.5 && r.right <= innerWidth + 0.5 && el.scrollHeight <= el.clientHeight + 1,
+      r: [r.left, r.top, r.right, r.bottom].map(Math.round), sh: el.scrollHeight, ch: el.clientHeight };
+  }, sel);
+}
+async function noOverlap(page, ids) {
+  return page.evaluate((ids) => {
+    const rs = ids.map(id => document.getElementById(id).getBoundingClientRect());
+    for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) {
+      const a = rs[i], b = rs[j];
+      if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) return ids[i] + ' overlaps ' + ids[j];
+    }
+    return null;
+  }, ids);
+}
+for (const ph of PHONES) {
+  console.log(`${ph.name} (${ph.viewport.width}×${ph.viewport.height}, WebKit):`);
+  const { browser, page, errors } = await open(webkit, ph.name, { viewport: ph.viewport, deviceScaleFactor: 3, hasTouch: true, isMobile: true, userAgent: IPHONE_UA });
+  await step('menu fits, with the add-to-home-screen tip', async () => {
+    assert.ok(await visible(page, 'install-tip'), 'install tip shown in Safari on iPhone');
+    assert.ok(!(await visible(page, 'btn-fullscreen')), 'no full-screen button (iPhone Safari cannot)');
+    const f = await fitsOnScreen(page, '.menu-card'); assert.ok(f.ok, JSON.stringify(f));
+    await page.screenshot({ path: `${OUT}/${ph.tag}-menu.png` });
+  });
+  await step('story and word card fit', async () => {
+    await page.locator('#btn-continue').tap();
+    await page.waitForFunction(() => window.__tank.mode === 'story');
+    for (let i = 0; i < 25 && !(await page.evaluate(() => document.getElementById('scr-story').classList.contains('is-card'))); i++) {
+      const f = await fitsOnScreen(page, '.story-card'); assert.ok(f.ok, 'story ' + i + ' ' + JSON.stringify(f));
+      await page.locator('#story-next').tap();
+    }
+    const f = await fitsOnScreen(page, '.story-card'); assert.ok(f.ok, 'card ' + JSON.stringify(f));
+    await page.screenshot({ path: `${OUT}/${ph.tag}-card.png` });
+    await tapThroughStory(page);
+  });
+  await step('playfield fits under a compact HUD, controls on screen', async () => {
+    await page.waitForFunction(() => window.__tank.G.robots.some(r => r.state === 'run'), null, { timeout: 8000 });
+    await sleep(800);
+    const m = await page.evaluate(() => {
+      const t = window.__tank, a = t.tileToScreen(0, 0), b = t.tileToScreen(20, 12);
+      const hud = Math.max(...[...document.querySelectorAll('#hud .pill, #hud .round')].map(e => e.getBoundingClientRect().bottom));
+      const fire = document.getElementById('fire').getBoundingClientRect(), joy = document.getElementById('joy').getBoundingClientRect();
+      return { a, b, hud, W: innerWidth, H: innerHeight, fire: [fire.left, fire.top, fire.right, fire.bottom], joy: [joy.left, joy.top, joy.right, joy.bottom], tile: (b.x - a.x) / 20 };
+    });
+    assert.ok(m.a.y >= m.hud - 1, 'map starts below HUD ' + JSON.stringify(m));
+    assert.ok(m.b.y <= m.H + 0.5 && m.a.x >= 0 && m.b.x <= m.W + 0.5, 'map on screen ' + JSON.stringify(m));
+    assert.ok(m.tile >= 24, 'tiles big enough to see ' + m.tile);
+    for (const r of [m.fire, m.joy]) assert.ok(r[0] >= 0 && r[1] >= 0 && r[2] <= m.W && r[3] <= m.H, 'control on screen ' + JSON.stringify(m));
+    assert.equal(await noOverlap(page, ['hud-shield', 'hud-level', 'hud-next', 'hud-robots', 'hud-stars', 'btn-pause']), null);
+    await page.screenshot({ path: `${OUT}/${ph.tag}-play.png` });
+  });
+  await step('thumb joystick and fire work', async () => {
+    const { W, H } = await page.evaluate(() => ({ W: innerWidth, H: innerHeight }));
+    const y0 = await page.evaluate(() => window.__tank.G.player.y);
+    await page.evaluate(({ W, H }) => {
+      const app = document.getElementById('app');
+      const ev = (type, x, y, id, target = app) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: id, pointerType: 'touch', isPrimary: id === 1 }));
+      ev('pointerdown', 90, H - 70, 1); ev('pointermove', 90, H - 130, 1, window);
+      ev('pointerdown', W - 70, H - 70, 2);
+      window.__end = () => { ev('pointerup', 90, H - 130, 1, window); ev('pointerup', W - 70, H - 70, 2, window); };
+    }, { W, H });
+    await sleep(500);
+    const g = await page.evaluate(() => ({ y: window.__tank.G.player.y, shots: window.__tank.G.bullets.filter(b => b.mine).length }));
+    await page.evaluate(() => window.__end());
+    assert.ok(g.y < y0 - 0.3, 'moved up'); assert.ok(g.shots >= 1, 'fired');
+  });
+  await step('pause and win cards fit', async () => {
+    await page.locator('#btn-pause').tap();
+    let f = await fitsOnScreen(page, '#scr-pause .panel'); assert.ok(f.ok, 'pause ' + JSON.stringify(f));
+    await page.locator('#btn-resume').tap();
+    await winByShooting(page);
+    await page.waitForFunction(() => window.__tank.mode === 'win', null, { timeout: 8000 });
+    f = await fitsOnScreen(page, '#scr-win .panel'); assert.ok(f.ok, 'win ' + JSON.stringify(f));
+    await page.screenshot({ path: `${OUT}/${ph.tag}-win.png` });
+  });
+  await step('level select and word book fit', async () => {
+    await page.evaluate(() => window.__tank.goMenu());
+    await page.locator('#btn-select').tap();
+    let f = await fitsOnScreen(page, '#scr-select .panel'); assert.ok(f.ok, 'select ' + JSON.stringify(f));
+    await page.screenshot({ path: `${OUT}/${ph.tag}-select.png` });
+    await page.locator('#scr-select .back').tap();
+    await page.locator('#btn-words').tap();
+    const r = await page.evaluate(() => { const b = document.querySelector('#scr-words .panel').getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight + 0.5; });
+    assert.ok(r, 'word book panel on screen (scrolls inside)');
+  });
+  if (ph.tag === 'p14') await step('portrait shows the rotate hint for phones', async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await visible(page, 'rotate'));
+    assert.match(await page.locator('#rotate-text').textContent(), /手机/);
+    await page.setViewportSize(ph.viewport);
   });
   await step('no JavaScript errors', async () => { assert.deepEqual(errors, []); });
   await browser.close();
