@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="小蓝坦克">
+<meta name="theme-color" content="#3d7bf7">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<title>小蓝坦克</title>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <div id="hud-shield" class="pill"></div>
+      <div id="hud-level" class="pill"></div>
+    </div>
+    <div class="hud-mid">
+      <div id="hud-next" class="pill next"></div>
+    </div>
+    <div class="hud-right">
+      <div id="hud-robots" class="pill"></div>
+      <div id="hud-stars" class="pill"></div>
+      <button id="btn-pause" class="round" aria-label="暂停">⏸</button>
+    </div>
+  </div>
+  <div id="toast" class="hidden"></div>
+
+  <div id="controls" class="hidden">
+    <div id="joy"><div id="joy-knob"></div></div>
+    <div id="fire">发射</div>
+  </div>
+
+  <!-- Screens -->
+  <section id="scr-menu" class="screen">
+    <div class="menu-card">
+      <div class="logo">🚙💤🤖</div>
+      <h1>小蓝坦克</h1>
+      <p class="sub">帮迷糊机器人睡个好觉</p>
+      <button id="btn-continue" class="big primary">开始冒险</button>
+      <button id="btn-select" class="big">选关</button>
+      <div class="menu-foot">
+        <button id="btn-parent" class="small">⚙︎ 家长设置</button>
+        <button id="btn-howto" class="small">怎么玩</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="scr-select" class="screen hidden">
+    <div class="panel wide">
+      <div class="panel-head">
+        <button class="small back" data-go="menu">← 返回</button>
+        <h2 id="select-title">选关</h2>
+        <span></span>
+      </div>
+      <div id="world-tabs"></div>
+      <div id="level-grid"></div>
+    </div>
+  </section>
+
+  <section id="scr-story" class="screen hidden">
+    <div class="story-card">
+      <div class="story-top"><span id="story-world"></span><span id="story-level"></span></div>
+      <div class="story-body">
+        <div id="story-face"></div>
+        <div>
+          <div id="story-name"></div>
+          <div id="story-text"></div>
+        </div>
+      </div>
+      <div class="story-foot">
+        <span id="story-dots"></span>
+        <button id="story-skip" class="small">跳过</button>
+        <button id="story-next" class="big primary">继续 ▶</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="scr-pause" class="screen hidden">
+    <div class="panel">
+      <h2>休息一下</h2>
+      <button id="btn-resume" class="big primary">继续玩</button>
+      <button id="btn-restart" class="big">重玩这一关</button>
+      <button id="btn-pause-select" class="big">选关</button>
+      <button id="btn-pause-menu" class="big">回主页</button>
+    </div>
+  </section>
+
+  <section id="scr-win" class="screen hidden">
+    <div class="panel">
+      <div id="win-stars" class="stars-big"></div>
+      <h2 id="win-title">过关啦！</h2>
+      <p id="win-detail"></p>
+      <button id="btn-win-next" class="big primary">继续 ▶</button>
+      <button id="btn-win-select" class="big">选关</button>
+    </div>
+  </section>
+
+  <section id="scr-oops" class="screen hidden">
+    <div class="panel">
+      <div class="emoji-big">🔋</div>
+      <h2>护盾用完啦</h2>
+      <p>没关系，小蓝充好电再来一次！</p>
+      <button id="btn-oops-retry" class="big primary">再来一次</button>
+      <button id="btn-oops-select" class="big">选关</button>
+    </div>
+  </section>
+
+  <section id="scr-rest" class="screen hidden">
+    <div class="panel">
+      <div class="emoji-big">🌙</div>
+      <h2>今天的冒险结束啦</h2>
+      <p id="rest-detail">小蓝要去充电睡觉了，明天再来吧！</p>
+      <button id="btn-rest-menu" class="big">回主页</button>
+      <button id="btn-rest-parent" class="small">⚙︎ 家长设置</button>
+    </div>
+  </section>
+
+  <section id="scr-finale" class="screen hidden">
+    <div class="panel">
+      <div class="emoji-big">🌈🚙☁️</div>
+      <h2>全部通关！</h2>
+      <p id="finale-detail"></p>
+      <button id="btn-finale-menu" class="big primary">回主页</button>
+    </div>
+  </section>
+
+  <section id="scr-howto" class="screen hidden">
+    <div class="panel">
+      <h2>怎么玩</h2>
+      <ul class="howto">
+        <li>👈 左手在屏幕左边按住拖动：小蓝往哪儿开。推得越远，开得越快。</li>
+        <li>👉 右手按住右边：发射“晚安能量球”。</li>
+        <li>🤖 碰到机器人，它就会睡着，醒来变成好朋友。</li>
+        <li>🌈 按头顶数字的顺序去碰，有彩虹奖励。</li>
+        <li>🧱 砖块能打碎，里面可能有 ⭐ 和 ❤️。灰色铁块打不碎。</li>
+        <li>🛡️ 小心紫色的球，每关有 5 格护盾。</li>
+      </ul>
+      <button class="big primary" data-go="menu">知道啦</button>
+    </div>
+  </section>
+
+  <section id="scr-gate" class="screen hidden">
+    <div class="panel">
+      <h2>家长确认</h2>
+      <p>请回答：<b id="gate-q"></b> = ?</p>
+      <input id="gate-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+      <p id="gate-msg" class="muted"></p>
+      <button id="gate-ok" class="big primary">确定</button>
+      <button id="gate-cancel" class="small">取消</button>
+    </div>
+  </section>
+
+  <section id="scr-parent" class="screen hidden">
+    <div class="panel wide">
+      <div class="panel-head">
+        <button id="parent-back" class="small back">← 完成</button>
+        <h2>家长设置</h2>
+        <span></span>
+      </div>
+      <div class="setting">
+        <div class="label">每天最多玩几关</div>
+        <div class="seg" id="set-levels"></div>
+      </div>
+      <div class="setting">
+        <div class="label">每天最多玩几分钟</div>
+        <div class="seg" id="set-minutes"></div>
+      </div>
+      <div class="setting">
+        <div class="label">朗读故事和数字</div>
+        <div class="seg" id="set-voice"></div>
+      </div>
+      <div class="setting">
+        <div class="label">音效</div>
+        <div class="seg" id="set-sound"></div>
+      </div>
+      <p id="parent-today" class="muted"></p>
+      <div class="row-buttons">
+        <button id="btn-reset-today" class="small">今天重新计时</button>
+        <button id="btn-unlock-all" class="small">解锁全部 100 关</button>
+        <button id="btn-reset-all" class="small danger">清空全部进度</button>
+      </div>
+      <p class="muted">时间到了会让孩子打完当前这一关再休息。设置只保存在这台 iPad 上。</p>
+    </div>
+  </section>
+
+  <div id="rotate">
+    <div>📱↻</div>
+    <p>请把 iPad 横过来玩</p>
+  </div>
+</div>
+<script src="src/story.js"></script>
+<script src="src/levels.js"></script>
+<script src="src/game.js"></script>
+<script>
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>
