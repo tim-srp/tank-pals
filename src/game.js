@@ -10,7 +10,7 @@
 
   // ---------- Saved progress & parent settings ----------
   const SAVE_KEY = 'tankpals.v1';
-  const DEFAULTS = { unlocked: 1, stars: {}, settings: { dailyLevels: 0, dailyMinutes: 0, voice: true, sound: true }, day: { date: today(), levels: 0, seconds: 0 } };
+  const DEFAULTS = { unlocked: 1, stars: {}, settings: { dailyLevels: 0, dailyMinutes: 0, voice: true, sound: true, music: true }, day: { date: today(), levels: 0, seconds: 0 } };
   let save = load();
   function load() {
     try {
@@ -58,6 +58,70 @@
     bossHit: () => tone(180, 0.15, 'sawtooth', 0.08, -60),
     win: () => [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, 0.22, 'triangle', 0.13, 0, i * 0.12)),
   };
+  // ---------- Background music (original tunes, synthesized live) ----------
+  // Notes are semitones above the song root; null is a rest. 32 eighth-note steps = 4 bars.
+  const SONGS = {
+    hop:   { bpm: 116, chords: [0, 5, 7, 0], mel: [12, null, 9, null, 7, 9, 12, null, 14, null, 12, 9, 7, null, null, null, 9, null, 7, null, 4, 7, 9, null, 7, 4, 2, 4, 0, null, null, null] },
+    skip:  { bpm: 108, chords: [0, 5, 7, 0], mel: [0, 4, 7, 4, 9, 7, 4, null, 2, 5, 9, 5, 7, null, null, null, 0, 4, 7, 12, 11, 9, 7, null, 5, 4, 2, null, 0, null, null, null] },
+    drift: { bpm: 92, chords: [0, 5, 0, 7], mel: [7, null, 4, null, 0, null, 4, 7, 9, null, 7, null, 4, null, null, null, 5, null, 9, null, 12, null, 9, 7, 4, null, 2, null, 0, null, null, null] },
+    boss:  { bpm: 132, chords: [0, 8, 5, 7], mel: [0, null, 3, null, 7, null, 3, 0, 5, null, 8, null, 7, null, null, null, 0, 3, 7, 10, 12, 10, 7, 3, 5, 3, 2, null, 0, null, null, null] },
+    menu:  { bpm: 100, chords: [0, 9, 5, 7], mel: [4, null, 7, null, 12, null, 11, 9, 7, null, null, null, 4, null, 5, 7, 9, null, 7, null, 5, null, 4, 2, 0, null, null, null, null, null, null, null] },
+  };
+  const WORLD_SONGS = ['hop', 'skip', 'drift'];
+  const WORLD_KEYS = [0, 2, -3, 5, -1, 3, -2, 4, 1, -4];
+  const music = { song: null, key: 0, step: 0, next: 0, timer: null, gain: null };
+  function musicFor(level) {
+    if (level == null) return ['menu', 0];
+    const w = Math.floor((level - 1) / S.LEVELS_PER_WORLD);
+    return [S.isBossLevel(level) ? 'boss' : WORLD_SONGS[w % 3], WORLD_KEYS[w]];
+  }
+  function startMusic(level) {
+    const [name, key] = musicFor(level);
+    if (!save.settings.music) { stopMusic(); return; }
+    const a = audio(); if (!a) return;
+    if (music.timer && music.song === name && music.key === key) return;
+    stopMusic();
+    music.song = name; music.key = key; music.step = 0; music.next = a.currentTime + 0.1;
+    music.gain = a.createGain(); music.gain.gain.value = 1; music.gain.connect(a.destination);
+    music.timer = setInterval(scheduleMusic, 60);
+    scheduleMusic();
+  }
+  function stopMusic() {
+    if (music.timer) clearInterval(music.timer);
+    music.timer = null; music.song = null;
+    if (music.gain && actx) { const g = music.gain; g.gain.setTargetAtTime(0, actx.currentTime, 0.05); setTimeout(() => g.disconnect(), 400); }
+    music.gain = null;
+  }
+  function note(midi, t, dur, type, vol) {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(music.gain); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function scheduleMusic() {
+    if (!actx || !music.gain) return;
+    const song = SONGS[music.song], stepDur = 60 / song.bpm / 2;
+    while (music.next < actx.currentTime + 0.25) {
+      const i = music.step % 32, t = music.next;
+      const m = song.mel[i];
+      if (m != null) note(72 + music.key + m, t, stepDur * 1.6, 'triangle', 0.045);
+      const chord = song.chords[Math.floor(i / 8)];
+      if (i % 4 === 0) note(48 + music.key + chord + (i % 8 ? 7 : 0), t, stepDur * 3, 'sine', 0.07);
+      if (i % 2 === 1) note(84 + music.key + chord + [4, 7][(i >> 1) % 2], t, stepDur * 0.5, 'sine', 0.012); // soft sparkle
+      music.next += stepDur; music.step++;
+    }
+  }
+
+  // Full screen in Safari (iPadOS supports it for the page; the home-screen app is full screen already).
+  const standalone = window.navigator.standalone === true || matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
+  const fsEnabled = !standalone && !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+  function enterFullscreen() {
+    if (!fsEnabled || isFullscreen()) return;
+    const el = document.documentElement;
+    try { const r = (el.requestFullscreen || el.webkitRequestFullscreen).call(el); if (r && r.catch) r.catch(() => {}); } catch (e) { /* not allowed */ }
+  }
+
   // iOS needs audio to start from a user gesture.
   window.addEventListener('pointerdown', () => { if (save.settings.sound) audio(); }, { once: true });
 
@@ -680,7 +744,7 @@
     $('controls').classList.toggle('hidden', !playing);
     if (!playing) releaseAll();
   }
-  function goMenu() { mode = 'menu'; G = null; hush(); show('menu'); $('btn-continue').textContent = save.unlocked > 1 ? `继续冒险 · 第 ${Math.min(save.unlocked, S.LEVEL_COUNT)} 关` : '开始冒险'; }
+  function goMenu() { mode = 'menu'; G = null; hush(); show('menu'); startMusic(null); $('btn-fullscreen').classList.toggle('hidden', !fsEnabled || isFullscreen()); $('btn-continue').textContent = save.unlocked > 1 ? `继续冒险 · 第 ${Math.min(save.unlocked, S.LEVEL_COUNT)} 关` : '开始冒险'; }
 
   let selectWorld = 0;
   function goSelect() {
@@ -743,6 +807,7 @@
     if (lim) return goRest(lim);
     newLevel(level);
     resize();
+    startMusic(level);
     showStory(level, levelIntroLines(level), () => play());
   }
   function levelIntroLines(level) {
@@ -753,11 +818,12 @@
     return lines;
   }
   function play() {
+    startMusic(G.level);
     mode = 'play'; show(null); last = performance.now();
     if (save.settings.dailyMinutes > 0 && limitReached() === 'minutes') toast('今天的时间到啦，打完这一关就休息吧');
   }
-  function pause() { if (mode !== 'play') return; mode = 'pause'; show('pause'); }
-  function resume() { mode = 'play'; show(null); last = performance.now(); }
+  function pause() { if (mode !== 'play') return; mode = 'pause'; show('pause'); stopMusic(); }
+  function resume() { mode = 'play'; show(null); last = performance.now(); startMusic(G.level); }
 
   function finishLevel(result) {
     if (result === 'oops') {
@@ -786,6 +852,7 @@
     });
   }
   function goRest(reason) {
+    stopMusic();
     mode = 'rest'; G = null; show('rest');
     const st = save.settings;
     $('rest-detail').textContent = reason === 'levels'
@@ -830,12 +897,14 @@
     seg('set-minutes', [[0, '不限'], [10, '10'], [15, '15'], [20, '20'], [30, '30'], [45, '45'], [60, '60']], st.dailyMinutes, v => st.dailyMinutes = v);
     seg('set-voice', [[true, '开'], [false, '关']], st.voice, v => st.voice = v);
     seg('set-sound', [[true, '开'], [false, '关']], st.sound, v => st.sound = v);
+    seg('set-music', [[true, '开'], [false, '关']], st.music, v => { st.music = v; if (!v) stopMusic(); });
     $('parent-today').textContent = `今天已玩 ${save.day.levels} 关、${Math.floor(save.day.seconds / 60)} 分钟。已解锁到第 ${save.unlocked} 关。`;
   }
 
   // Button wiring
   const on = (id, fn) => $(id).addEventListener('click', fn);
-  on('btn-continue', () => startLevel(Math.min(save.unlocked, S.LEVEL_COUNT)));
+  on('btn-fullscreen', () => { enterFullscreen(); $('btn-fullscreen').classList.add('hidden'); });
+  on('btn-continue', () => enterFullscreen() || startLevel(Math.min(save.unlocked, S.LEVEL_COUNT)));
   on('btn-select', goSelect);
   on('btn-howto', () => { mode = 'howto'; show('howto'); });
   on('btn-parent', () => openGate(openParent));
@@ -862,7 +931,7 @@
   on('btn-unlock-all', () => { save.unlocked = S.LEVEL_COUNT; persist(); renderParent(); });
   on('btn-reset-all', () => { if (confirm('确定清空全部进度吗？')) { save.unlocked = 1; save.stars = {}; persist(); renderParent(); } });
   document.querySelectorAll('[data-go="menu"]').forEach(b => b.addEventListener('click', goMenu));
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); persist(); } });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { pause(); persist(); stopMusic(); } else if (mode === 'menu') startMusic(null); });
 
   // ---------- Main loop ----------
   let last = performance.now(), saveTimer = 0;
@@ -881,7 +950,7 @@
 
   // Test hook (used by the automated end-to-end tests).
   window.__tank = {
-    get G() { return G; }, get mode() { return mode; }, get save() { return save; },
+    get G() { return G; }, get music() { return { song: music.song, playing: !!music.timer }; }, get mode() { return mode; }, get save() { return save; },
     expectedNumber: () => G && expectedNumber(),
     startLevel, goMenu, persist,
     tileToScreen: (c, r) => ({ x: ox + c * tile, y: oy + r * tile }),

@@ -40,7 +40,7 @@ async function winByShooting(page) {
       if (!G || t.mode !== 'play') return 'done';
       G.player.inv = 5; // keep the test player safe
       const exp = t.expectedNumber();
-      const target = G.robots.find(r => r.state === 'run' && (r.boss || r.num === exp)) || G.robots.find(r => r.state === 'run');
+      const target = G.robots.find(r => r.state === 'run' && r.num === exp) || (exp == null && G.robots.find(r => r.state === 'run' && r.boss));
       if (target && !G.bullets.some(b => b.mine)) G.bullets.push({ x: target.x, y: target.y, vx: 0.01, vy: 0, mine: true, r: 0.13, life: 1 });
       return 'go';
     });
@@ -57,14 +57,16 @@ console.log('Chromium (touch):');
   const { browser, page, errors } = await open(chromium);
   const cdp = await page.context().newCDPSession(page);
 
-  await step('menu shows and screenshot', async () => {
+  await step('menu shows, with a full-screen button, and screenshot', async () => {
     assert.ok(await visible(page, 'scr-menu'));
+    assert.ok(await visible(page, 'btn-fullscreen'));
     await page.screenshot({ path: `${OUT}/01-menu.png` });
   });
 
   await step('start adventure → story cards → play', async () => {
     await page.locator('#btn-continue').tap();
     await page.waitForFunction(() => window.__tank.mode === 'story');
+    await page.waitForFunction(() => !!document.fullscreenElement, null, { timeout: 3000 }); // start enters full screen
     assert.match(await page.locator('#story-text').textContent(), /乱码云/);
     await page.screenshot({ path: `${OUT}/02-story.png` });
     await tapThroughStory(page);
@@ -112,13 +114,20 @@ console.log('Chromium (touch):');
     assert.deepEqual(s, { x: 0, y: 0, z: 1 });
   });
 
-  await step('pause / resume', async () => {
+  await step('background music plays the world tune during play', async () => {
+    const m = await page.evaluate(() => window.__tank.music);
+    assert.deepEqual(m, { song: 'hop', playing: true });
+  });
+
+  await step('pause / resume (music stops while paused)', async () => {
     await page.locator('#btn-pause').tap();
     assert.equal(await mode(page), 'pause');
+    assert.equal((await page.evaluate(() => window.__tank.music)).playing, false);
     const t = await page.evaluate(() => window.__tank.G.time); await sleep(300);
     assert.equal(await page.evaluate(() => window.__tank.G.time), t, 'time frozen while paused');
     await page.locator('#btn-resume').tap();
     assert.equal(await mode(page), 'play');
+    assert.equal((await page.evaluate(() => window.__tank.music)).playing, true);
   });
 
   await step('robots spawn with numbers; hitting in order gives rainbow bonus; level 1 is won', async () => {
@@ -167,6 +176,7 @@ console.log('Chromium (touch):');
     await page.evaluate(() => { window.__tank.save.unlocked = 100; window.__tank.startLevel(10); });
     await tapThroughStory(page);
     assert.ok(await page.evaluate(() => window.__tank.G.robots.some(r => r.boss)));
+    assert.equal((await page.evaluate(() => window.__tank.music)).song, 'boss');
     await sleep(800);
     await page.screenshot({ path: `${OUT}/07-boss.png` });
     await winByShooting(page);
@@ -207,6 +217,10 @@ console.log('Chromium (touch):');
     await page.locator('#gate-ok').tap();
     assert.ok(await visible(page, 'scr-parent'));
     await page.locator('#btn-reset-today').tap();
+    await page.locator('#set-music button', { hasText: '关' }).tap();
+    assert.equal(await page.evaluate(() => window.__tank.save.settings.music), false);
+    assert.equal((await page.evaluate(() => window.__tank.music)).playing, false);
+    await page.locator('#set-music button', { hasText: '开' }).tap();
     await page.locator('#set-levels button', { hasText: /^1$/ }).tap();
     await page.screenshot({ path: `${OUT}/09-parent.png` });
     assert.equal(await page.evaluate(() => window.__tank.save.settings.dailyLevels), 1);
@@ -248,6 +262,8 @@ console.log('Chromium (touch):');
   });
 
   await step('portrait shows rotate hint', async () => {
+    await page.evaluate(() => document.fullscreenElement && document.exitFullscreen());
+    await sleep(300);
     await page.setViewportSize({ width: 820, height: 1180 });
     assert.ok(await visible(page, 'rotate'));
     await page.setViewportSize({ width: 1180, height: 820 });
